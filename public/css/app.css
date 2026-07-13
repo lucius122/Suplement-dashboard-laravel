@@ -1,0 +1,69 @@
+/* Suplemen Semarang Store — ported from Claude Design "Suplemen Semarang Store Responsive.dc.html" */
+* { box-sizing: border-box; }
+/* halaman tidak pernah scroll — semua scroll terjadi di container .scrl di dalam
+   aplikasi, supaya scrollbar OS tidak muncul-hilang saat ganti layar */
+html, body { height:100%; overflow:hidden; overscroll-behavior:none; }
+/* app container = tepat 100dvh, tidak pernah overflow ke luar */
+#app { height:100dvh; overflow:hidden; display:block; }
+body { margin:0; background:#0a0a0c; }
+/* sembunyikan semua scrollbar default — hanya .scrl yang boleh scroll terlihat */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; width: 0; }
+/* scroll di container tidak merambat ke halaman (hilangkan efek "scroll ganda" di mobile) */
+.scrl { overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
+.scrl::-webkit-scrollbar{ width:6px; height:6px; }
+.scrl::-webkit-scrollbar-track{ background:transparent; }
+.scrl::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+.scrl{ scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+@keyframes ssPop  { from{ transform:translateY(8px); opacity:.7 } to{ transform:none; opacity:1 } }
+@keyframes ssModal { from{ opacity:0; transform:translate(-50%,-50%) scale(.96) } to{ opacity:1; transform:translate(-50%,-50%) scale(1) } }
+@keyframes ssToast { from{ transform:translate(-50%,12px); opacity:0 } to{ transform:translate(-50%,0); opacity:1 } }
+@keyframes ssScan { 0%{ top:6% } 100%{ top:90% } }
+.ss-root{
+  --bg:#0a0a0c;--panel:#0e0e11;--surface:#141417;--surface2:#16161b;--surface3:#1a1a1f;--input:#0f0f12;--chip:#1f1f26;--divider:#1c1c21;--border:#2A2A31;--border2:#23232a;--barempty:#33333b;--text:#F4F3EE;--text2:#cfcfd4;--muted:#8E8E97;--muted2:#9a9aa2;--dim:#6c6c74;--dim2:#5b5b62;--gold:#D4AF37;--goldsoft:#cbbf8e;--goldhi:#EBC95C;--golddeep:#b8922a;--g1:#15130d;--g2:#241f10;--g3:#221d10;--g4:#141210;--g5:#1c1418;--g6:#141114;--g7:#1c1c20;--g8:#101013;--g9:#121215;--hover:rgba(255,255,255,.05);
+  --goldtint:rgba(212,175,55,.1);--goldtint2:rgba(212,175,55,.15);--goldborder:rgba(212,175,55,.35);
+  --ok:#46C46A;--oktint:rgba(70,196,106,.12);--okborder:rgba(70,196,106,.4);--okbadge:rgba(70,196,106,.85);
+  --warn:#E8A13A;--warntint:rgba(232,161,58,.12);
+  --danger:#F0506E;--dangertint:rgba(240,80,110,.12);--dangerborder:rgba(240,80,110,.3);--dangersoft:#f0a3b3;
+  --info:#7aa7ff;--infotint:rgba(122,167,255,.14);
+  --inset:rgba(0,0,0,.25);--scrim:rgba(4,4,6,.82);--shadowc:rgba(0,0,0,.65);--cardshadow:none;--modeshadow:none;--modetile:rgba(212,175,55,.1);
+}
+.ss-root.theme-light{
+  --bg:#E6E2D6;--panel:#FAF9F3;--surface:#FFFFFF;--surface2:#F3F0E6;--surface3:#EAE6D9;--input:#FDFCF8;--chip:#E4DFD1;--divider:#DCD7C7;--border:#D8D3C2;--border2:#E5E1D3;--barempty:#D8D2BF;--text:#2B2820;--text2:#4C483E;--muted:#837F73;--muted2:#767263;--dim:#9D9889;--dim2:#ACA79A;--gold:#A9821A;--goldsoft:#7E6512;--goldhi:#D9B23C;--golddeep:#8F6E12;--g1:#F2E7C4;--g2:#FAF1D6;--g3:#FAF3DE;--g4:#FFFEF9;--g5:#F7DEE4;--g6:#FDF3F4;--g7:#FFFFFF;--g8:#F1EEE4;--g9:#F5F2E9;--hover:rgba(0,0,0,.04);
+  --goldtint:rgba(169,130,26,.09);--goldtint2:rgba(169,130,26,.15);--goldborder:rgba(169,130,26,.4);
+  --ok:#22874B;--oktint:rgba(34,135,75,.1);--okborder:rgba(34,135,75,.35);--okbadge:#2E9E52;
+  --warn:#B26F10;--warntint:rgba(178,111,16,.1);
+  --danger:#C81E42;--dangertint:rgba(200,30,66,.1);--dangerborder:rgba(200,30,66,.45);--dangersoft:#A83A52;
+  --info:#3D66C9;--infotint:rgba(61,102,201,.1);
+  --inset:rgba(255,255,255,.55);--scrim:rgba(20,16,8,.68);--shadowc:rgba(45,36,14,.2);
+  --cardshadow:0 10px 28px -10px rgba(58,47,18,.18),0 2px 6px -3px rgba(58,47,18,.1);
+  --modeshadow:0 18px 40px -14px rgba(58,47,18,.28),0 5px 12px -5px rgba(58,47,18,.14);
+  --modetile:rgba(169,130,26,.14);
+}
+.ss-root.theme-light [data-icon="modepick"] [stroke="#D4AF37"]{ stroke:var(--golddeep); }
+.ss-root.theme-light [data-icon="modepick"] [fill="#D4AF37"]{ fill:var(--golddeep); }
+.ss-root [stroke="#D4AF37"]{ stroke:var(--gold); }
+.ss-root [fill="#D4AF37"]{ fill:var(--gold); }
+.ss-root [stroke="#46C46A"]{ stroke:var(--ok); }
+.ss-root [stroke="#F0506E"]{ stroke:var(--danger); }
+.ss-root [stroke="#6c6c74"]{ stroke:var(--dim); }
+.ss-root [stroke="#5b5b62"]{ stroke:var(--dim2); }
+.ss-root [stroke="#9a8a55"]{ stroke:var(--goldsoft); }
+.ss-root [stroke="#8E8E97"]{ stroke:var(--muted); }
+.ss-root [stroke="#cfcfd4"]{ stroke:var(--text2); }
+.ss-root [stroke="#F4F3EE"]{ stroke:var(--text); }
+.ss-root [fill="#F4F3EE"]{ fill:var(--text); }
+
+/* replacements for the design runtime's style-focus / style-active / style-hover attrs */
+.ss-root input:focus{ border-color:var(--gold) !important; }
+.ss-root .fx-press:active{ transform:translateY(1px); }
+.ss-root .fx-card:active{ transform:scale(.98); border-color:var(--gold) !important; }
+.ss-root .fx-hover:hover{ background:var(--hover) !important; }
+.ss-modecard:hover{ border-color:var(--gold) !important; background:linear-gradient(150deg,var(--goldtint2),var(--surface3)) !important; transform:translateY(-3px); box-shadow:var(--modeshadow),0 0 0 1px var(--gold); }
+.ss-modecard:active{ transform:translateY(-1px) scale(.99); border-color:var(--gold) !important; background:linear-gradient(150deg,var(--goldtint2),var(--surface3)) !important; box-shadow:var(--modeshadow),0 0 0 1.5px var(--gold); }
+.ss-logout-pill:hover{ background:var(--dangertint) !important; border-color:var(--dangerborder) !important; color:var(--danger) !important; }
+.ss-logout-row:hover{ background:var(--dangertint) !important; }
+
+/* image-slot (photo upload) */
+.ss-root .img-slot{ cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--dim2); overflow:hidden; border-radius:14px; }
+.ss-root .img-slot img{ width:100%; height:100%; object-fit:cover; display:block; }
