@@ -23,14 +23,6 @@
       setTimeout(poll, 60);
     })();
   });
-  // pilih produk katalog yang stoknya paling banyak, supaya tes tahan diulang-ulang
-  const norm = s => s.replace(/\s+/g, ' ').trim();
-  const cardStok = c => { const m = c.textContent.match(/(?:Stok|Sisa)\s+(\d+)/); return m ? parseInt(m[1]) : 0; };
-  const catalogCards = () => [...appEl().querySelectorAll('button')].filter(b => /Rp[\d.]/.test(b.textContent) && /(?:Stok|Sisa|Habis)/.test(b.textContent));
-  const pickProduct = () => catalogCards().sort((a, b) => cardStok(b) - cardStok(a))[0];
-  const keyOf = c => norm(c.textContent).split('Rp')[0].trim(); // nama + varian
-  const cardByKey = key => catalogCards().find(c => norm(c.textContent).startsWith(key));
-  const stokByKey = key => { const c = cardByKey(key); return c ? cardStok(c) : null; };
   const finish = () => {
     if(window.__errors.length) out.push('ERRORS: ' + window.__errors.join(' | '));
     R.textContent = 'RESULTS[' + out.join(' ;; ') + ']END';
@@ -41,19 +33,13 @@
       step('login screen', await waitFor(() => has('Masuk ke Sistem')));
 
       if (window.innerWidth < 900) {
-        /* ---- alur mobile: kasir ---- */
+        /* ---- alur mobile: kasir login → layar kasir (modul kasir.js) muncul ---- */
+        // Bagian kasir dikosongkan untuk tim kasir; yang diuji: login kasir sampai
+        // ke layar kasir yang dirender modul kasir.js (placeholder starter).
         type('i-uname', 'kasir'); type('i-pass', 'kasir');
         click(btn('MASUK'));
-        step('m: kasir masuk', await waitFor(() => has('Cabang Pleburan') && has('Katalog')));
-        const mProd = pickProduct(); const mKey = keyOf(mProd); const s0 = cardStok(mProd);
-        click(mProd);
-        step('m: item masuk keranjang', await waitFor(() => has('1 item')));
-        click(btn('Lihat Keranjang'));
-        step('m: sheet keranjang', await waitFor(() => has('Metode Pembayaran')));
-        click(btn('Uang Pas'));
-        click(btn('SELESAIKAN TRANSAKSI'));
-        step('m: transaksi tersimpan', await waitFor(() => has('Transaksi selesai')));
-        step('m: stok berkurang di server', await waitFor(() => stokByKey(mKey) === s0 - 1));
+        step('m: kasir masuk ke layar kasir', await waitFor(() => has('Kasir') && (has('Mulai bangun Kasir di sini') || has('produk termuat dari server'))));
+        step('m: runtime kasir terhubung (SS.DB)', await waitFor(() => /\d+ produk termuat/.test(appEl().textContent)));
         step('m: tanpa error js', window.__errors.length === 0);
         finish(); return;
       }
@@ -136,23 +122,12 @@
       click(btn('Tutup'));
       step('chip kategori dari DB', await waitFor(() => btn('Protein') && !appEl().textContent.includes(kat)));
 
+      // Bagian kasir dikosongkan untuk tim kasir → admin "Buka Kasir" menampilkan
+      // layar yang dirender modul kasir.js (placeholder starter), bukan POS penuh.
       click(btn('Ganti Mode / Kasir'));
       step('kembali ke pilihan mode', await waitFor(() => has('Mau ke mana?')));
       click(btn('Buka Kasir'));
-      step('kasir terbuka', await waitFor(() => has('Transaksi Kasir') && catalogCards().length > 0));
-
-      click(btn('+ Tambah Produk'));
-      step('dropdown kategori di form produk', await waitFor(() => { const s = document.getElementById('i-kcat'); return s && s.tagName === 'SELECT' && s.options.length >= 5; }));
-      click(btn('Katalog'));
-      step('kembali ke katalog', await waitFor(() => catalogCards().length > 0));
-
-      const dProd = pickProduct(); const dKey = keyOf(dProd); const s0 = cardStok(dProd);
-      click(dProd);
-      step('item masuk keranjang', await waitFor(() => has('1 item')));
-      click(btn('Uang Pas'));
-      click(btn('SELESAIKAN TRANSAKSI'));
-      step('transaksi tersimpan', await waitFor(() => has('Transaksi selesai')));
-      step('stok berkurang di server', await waitFor(() => stokByKey(dKey) === s0 - 1));
+      step('layar kasir didelegasikan ke kasir.js', await waitFor(() => has('Kasir') && (has('Mulai bangun Kasir di sini') || has('produk termuat dari server'))));
 
       step('tanpa error js', window.__errors.length === 0);
     } catch(e) {

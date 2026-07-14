@@ -57,22 +57,18 @@ let S = {
 
   vw: window.innerWidth, navOpen: false, sideCollapsed: false,
   uname: '', pass: '', loginErr: '',
-  cart: [], pay: 'tunai', cash: 0, tempoName: '', tempoDate: '',
-  search: '', bell: false, more: false, toast: '',
+  bell: false, more: false, toast: '',
   pf: 'Semua', pq: '',
   stokCat: 'Semua', userRole: 'Semua',
   scan: false, userForm: false, prodForm: false,
   period: 'Harian', uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
-  pendingSlot: '',
-  kName: '', kVar: '', kPrice: '', kCat: 'Protein', kStok: '',
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan',
-  theme: 'dark', cashierTab: 'katalog', settingsBack: 'cashier',
-  branchMenu: false, branchForm: false, newBranch: '',
-  catForm: false, newCat: '',
-  cartSheetOpen: false,
+  theme: 'dark', settingsBack: 'dashboard',
+  branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
+  // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
+  // oleh modul kasir (public/js/kasir.js) lewat window.SS.setState.
 };
 
-const slotImages = {}; // foto produk yang diunggah, keyed by slot id (data URL)
 const TODAY = new Date();
 
 /* ================= helpers ================= */
@@ -126,7 +122,9 @@ function enterApp(){
   setState({
     role: USER.role, who: (USER.name||'').split(' ')[0] || 'User',
     branch: USER.branch || 'Pleburan',
+    // kasir → layar 'cashier' (dirender oleh modul kasir); admin → pilih mode
     screen: USER.role === 'admin' ? 'mode' : 'cashier',
+    settingsBack: USER.role === 'admin' ? 'dashboard' : 'cashier',
     loginErr:'', uname:'', pass:'',
   });
 }
@@ -147,57 +145,9 @@ async function logout(){
   location.reload(); // token CSRF di-regenerate server; reload mengambil token & state segar
 }
 
-function addProd(id){
-  setState(s=>{
-    const ex = s.cart.find(c=>c.id===id);
-    return { cart: ex ? s.cart.map(c=>c.id===id?{...c,qty:c.qty+1}:c) : [...s.cart, {id,qty:1}] };
-  });
-}
-function changeQty(id,d){
-  setState(s=>({ cart: s.cart.map(c=>c.id===id?{...c,qty:c.qty+d}:c).filter(c=>c.qty>0) }));
-}
-
-async function completeSale(total, change, cashBranch){
-  if(S.cart.length===0) return;
-  if(S.pay==='tunai' && S.cash < total){ flash('Uang yang diterima masih kurang'); return; }
-  if(S.pay==='tempo' && !S.tempoName.trim()){ flash('Isi nama pembeli untuk tempo'); return; }
-  const tempoName = S.tempoName;
-  try {
-    const r = await api('/api/transactions', 'POST', {
-      branch: cashBranch, method: S.pay, cash: S.pay==='tunai' ? S.cash : null,
-      tempo_name: tempoName.trim() || null, tempo_due: S.tempoDate || null,
-      items: S.cart.map(c => ({ id: c.id, qty: c.qty })),
-    });
-    let msg;
-    if(S.pay==='tunai') msg = 'Transaksi selesai · Kembalian '+rp(Math.max(0, r.change));
-    else if(S.pay==='tempo') msg = 'Tempo dicatat atas nama '+tempoName;
-    else msg = 'Penjualan marketplace tercatat';
-    Object.assign(S, { cart:[], cash:0, pay:'tunai', tempoName:'', tempoDate:'', search:'', cartSheetOpen:false });
-    await loadAll();
-    flash(msg);
-  } catch(e) { flash(e.message); }
-}
-
 async function markPaid(id){
   try { await api('/api/receivables/'+id+'/pay', 'POST', {}); await loadAll(); flash('Tagihan ditandai lunas'); }
   catch(e) { flash(e.message); }
-}
-
-async function saveKProduct(cashBranch){
-  if(!S.kName.trim()){ flash('Isi nama produk dulu'); return; }
-  const harga = parseInt((S.kPrice||'').replace(/\D/g,''))||0;
-  if(!harga){ flash('Isi harga jual dulu'); return; }
-  const nama = S.kName.trim();
-  try {
-    await api('/api/products', 'POST', {
-      name: nama, varian: S.kVar.trim() || '-', harga,
-      stok: parseInt(S.kStok)||0, kategori: S.kCat, branch: cashBranch,
-      photo: slotImages[S.pendingSlot] || null,
-    });
-    Object.assign(S, { cashierTab:'katalog' });
-    await loadAll();
-    flash('Produk "'+nama+'" ditambahkan');
-  } catch(e) { flash(e.message); }
 }
 
 async function saveBranch(){
@@ -297,35 +247,8 @@ function renderVals(){
   const isNarrow = S.vw < 380;
   const recv = recvView();
   const recvBranch = recv.filter(r => branch==='Semua' || r.cabang === branch);
-  const cashBranch = branch==='Semua' ? 'Pleburan' : branch;
   const dueSoon = recvBranch.filter(r => r.soon);
   const bellCount = dueSoon.length;
-
-  const all = DB.products;
-  const byId = Object.fromEntries(all.map(p=>[p.id,p]));
-  const cartLines = S.cart.map(c => {
-    const p = byId[c.id];
-    return { id:c.id, name:p.name, varian:p.varian, qtyText:String(c.qty),
-      priceText:rp(p.harga), lineText:rp(p.harga*c.qty),
-      onInc:()=>changeQty(c.id,1), onDec:()=>changeQty(c.id,-1) };
-  });
-  const cartTotal = S.cart.reduce((s,c)=>s + byId[c.id].harga*c.qty, 0);
-  const change = S.cash - cartTotal;
-
-  const q = S.search.trim().toLowerCase();
-  const catalog = all.filter(p => p.cabang===cashBranch && (!q || (p.name+' '+p.varian).toLowerCase().includes(q))).map(p => {
-    let st, sc;
-    if(p.stok<=0){ st='Habis'; sc='var(--danger)'; } else if(p.stok<=5){ st='Sisa '+p.stok; sc='var(--warn)'; } else { st='Stok '+p.stok; sc='var(--okbadge)'; }
-    const photo = p.photo || '';
-    return { id:p.id, photo, hasPhoto: !!photo,
-      name:p.name, varian:p.varian, priceText:rp(p.harga), stokText:st, stokColor:sc,
-      onAdd: p.stok<=0 ? (()=>flash('Stok habis')) : (()=>addProd(p.id)) };
-  });
-
-  const seg = (active) => active
-    ? { Bg:'linear-gradient(180deg,var(--goldhi),var(--gold))', Color:'#161208', Border:'var(--gold)' }
-    : { Bg:'var(--surface2)', Color:'var(--text2)', Border:'var(--border)' };
-  const t1=seg(S.pay==='tunai'), t2=seg(S.pay==='marketplace'), t3=seg(S.pay==='tempo');
 
   const D = getDash(branch);
   const wmax = Math.max(...D.week.map(w=>w.v), 0.1);
@@ -490,8 +413,7 @@ function renderVals(){
   return {
     scrLogin: S.screen==='login',
     scrMode: S.screen==='mode',
-    cashierDesktop: S.screen==='cashier' && isDesktop,
-    cashierMobile: S.screen==='cashier' && isMobile,
+    scrCashier: S.screen==='cashier', // dirender oleh modul kasir (public/js/kasir.js) via window.SS
     adminShell: S.role==='admin' && adminSet.includes(S.screen),
     secDashboard: S.screen==='dashboard', secPiutang: S.screen==='piutang', secTempo: S.screen==='tempo',
     secStok: S.screen==='stok', secUsers: S.screen==='users', secLaporan: S.screen==='laporan',
@@ -536,59 +458,20 @@ function renderVals(){
     demoAdmin:()=>setState({uname:'admin',pass:'admin'}),
     demoKasir:()=>setState({uname:'kasir',pass:'kasir'}),
 
-    who:S.who, branch, cashBranch,
+    who:S.who, branch,
     branchLabel: branch==='Semua' ? 'Semua Cabang' : branch,
     settingsBranchText: branch==='Semua' ? 'Semua Cabang' : 'Cabang '+branch,
     tempoScopeText: branch==='Semua' ? 'semua cabang' : 'cabang '+branch,
     isSemua: branch==='Semua',
     topEmpty: D.top.length===0,
-    catalogEmpty: catalog.length===0,
     perBranchBars,
     logout:()=>logout(),
     goKasir:go('cashier'), goDash:go('dashboard'), goModeScreen:go('mode'),
-
-    search:S.search, onSearch:(e)=>setState({search:e.target.value}),
-    catalog,
-    cartLines, cartEmpty:S.cart.length===0, cartHasItems:S.cart.length>0,
-    cartCountText: S.cart.length ? S.cart.reduce((s,c)=>s+c.qty,0)+' item' : '',
-    cartTotalText:rp(cartTotal),
-    cartSheetOpen:S.cartSheetOpen,
-    openCartSheet:()=>setState({cartSheetOpen:true}),
-    closeCartSheet:()=>setState({cartSheetOpen:false}),
-    payTunai:()=>setState({pay:'tunai'}), payMarket:()=>setState({pay:'marketplace'}), payTempo:()=>setState({pay:'tempo'}),
-    isTunai:S.pay==='tunai', isMarket:S.pay==='marketplace', isTempo:S.pay==='tempo',
-    tunaiBg:t1.Bg, tunaiColor:t1.Color, tunaiBorder:t1.Border,
-    marketBg:t2.Bg, marketColor:t2.Color, marketBorder:t2.Border,
-    tempoBg:t3.Bg, tempoColor:t3.Color, tempoBorder:t3.Border,
-    cashText: S.cash ? rp(S.cash) : '',
-    onCash:(e)=>{ const n=parseInt((e.target.value||'').replace(/\D/g,''))||0; setState({cash:n}); },
-    qPas:()=>setState({cash:cartTotal}), q50:()=>setState({cash:50000}), q100:()=>setState({cash:100000}), q200:()=>setState({cash:200000}),
-    changeLabel: change<0 ? 'Uang Kurang' : 'Kembalian',
-    changeColor: change<0 ? 'var(--danger)' : 'var(--ok)',
-    changeText: rp(Math.abs(change)),
-    tempoName:S.tempoName, onTempoName:(e)=>setState({tempoName:e.target.value}),
-    tempoDate:S.tempoDate, onTempoDate:(e)=>setState({tempoDate:e.target.value}),
-    completeSale:()=>completeSale(cartTotal, change, cashBranch),
-    openScan:()=>setState({scan:true}),
-    pendingSlot:S.pendingSlot,
-    kName:S.kName, onKName:(e)=>setState({kName:e.target.value}),
-    kVar:S.kVar, onKVar:(e)=>setState({kVar:e.target.value}),
-    kStok:S.kStok, onKStok:(e)=>setState({kStok:(e.target.value||'').replace(/\D/g,'')}),
-    kPriceText: S.kPrice ? rp(parseInt(S.kPrice)) : '', onKPrice:(e)=>setState({kPrice:(e.target.value||'').replace(/\D/g,'')}),
-    kCatOptions: DB.categories.map(c=>c.name),
-    onKCat:(e)=>setState({kCat:e.target.value}),
-    saveKProduct:()=>saveKProduct(cashBranch),
 
     themeClass: S.theme==='light' ? 'theme-light' : 'theme-dark',
     isLight: S.theme==='light',
     isDark: S.theme!=='light',
     toggleTheme:()=>setTheme(S.theme==='light'?'dark':'light'),
-
-    cashierTab:S.cashierTab, isKatalogTab:S.cashierTab==='katalog', isTambahTab:S.cashierTab==='tambah',
-    katalogTabSeg: chip(S.cashierTab==='katalog'),
-    tambahTabSeg: chip(S.cashierTab==='tambah'),
-    goKatalogTab:()=>setState({cashierTab:'katalog'}),
-    goTambahTab:()=>setState({cashierTab:'tambah', pendingSlot:'foto_custom_'+Date.now(), kName:'',kVar:'',kPrice:'',kCat:(DB.categories[0]||{}).name||'',kStok:''}),
 
     scrSettings: S.screen==='settings',
     openSettings:()=>setState({ settingsBack: S.screen, screen:'settings', more:false, bell:false, navOpen:false }),
@@ -686,11 +569,6 @@ const themeBtn = (V, box, icon, rad) => `<button ${A(V.toggleTheme)} style="widt
 const lbl = t => `<label style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;">${t}</label>`;
 const inputStyle = h => `width:100%;height:${h}px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;`;
 
-function imageSlot(V, h, radius, placeholder){
-  const img = slotImages[S.pendingSlot];
-  return `<div class="img-slot" data-slot="${esc(S.pendingSlot)}" style="width:100%;height:${h}px;background:var(--input);border:1px dashed var(--border);font-size:13px;margin-bottom:18px;border-radius:${radius}px;">${img ? `<img src="${img}" alt="">` : placeholder}</div>`;
-}
-
 /* ================= LOGIN ================= */
 function loginHtml(V){
   return `
@@ -761,248 +639,6 @@ function modeHtml(V){
       <div style="text-align:center;font-size:13px;color:var(--dim2);margin-top:26px;">Anda bisa berpindah mode kapan saja dari dalam aplikasi.</div>
     </div>
   </div>`;
-}
-
-/* ================= CASHIER shared pieces ================= */
-function payButtons(V, h, rad, gap){
-  const b = (handler, seg, label) => `<button ${A(handler)} style="flex:1;height:${h}px;border-radius:${rad}px;cursor:pointer;font-family:'Saira',sans-serif;font-weight:700;font-size:13px;border:1px solid ${seg.Border};background:${seg.Bg};color:${seg.Color};">${label}</button>`;
-  return `<div style="display:flex;gap:${gap}px;margin-bottom:14px;">
-    ${b(V.payTunai, {Bg:V.tunaiBg,Color:V.tunaiColor,Border:V.tunaiBorder}, 'Tunai')}
-    ${b(V.payMarket, {Bg:V.marketBg,Color:V.marketColor,Border:V.marketBorder}, 'Marketplace')}
-    ${b(V.payTempo, {Bg:V.tempoBg,Color:V.tempoColor,Border:V.tempoBorder}, 'Tempo')}
-  </div>`;
-}
-function tunaiBox(V, mobile){
-  const inH = mobile?50:54, fs = mobile?22:24, qh = mobile?36:38, chFs = mobile?26:30;
-  const q = (handler,label,gold) => `<button ${A(handler)} style="flex:1;height:${qh}px;border-radius:${mobile?9:10}px;background:${gold?'var(--goldtint)':'var(--chip)'};border:1px solid ${gold?'var(--goldborder)':'var(--border)'};color:${gold?'var(--gold)':'var(--text)'};font-size:${mobile?12:12.5}px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">${label}</button>`;
-  return `<div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:14px;padding:${mobile?14:15}px;${mobile?'margin-bottom:14px;':''}">
-    <label style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;">Uang Diterima</label>
-    <input id="i-cash" value="${esc(V.cashText)}" ${I(V.onCash)} inputmode="numeric" placeholder="0" style="width:100%;height:${inH}px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:${fs}px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;margin:8px 0 ${mobile?11:12}px;">
-    <div style="display:flex;gap:${mobile?7:8}px;margin-bottom:${mobile?14:15}px;">
-      ${q(V.qPas,'Uang Pas',true)}${q(V.q50,'50rb')}${q(V.q100,'100rb')}${q(V.q200,'200rb')}
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border2);padding-top:${mobile?12:13}px;">
-      <span style="font-size:${mobile?13:14}px;color:var(--muted);">${V.changeLabel}</span>
-      <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:${chFs}px;color:${V.changeColor};">${V.changeText}</span>
-    </div>
-  </div>`;
-}
-function tempoBox(V, mobile){
-  const h = mobile?46:48;
-  return `<div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:14px;padding:${mobile?14:15}px;${mobile?'margin-bottom:14px;':''}display:flex;flex-direction:column;gap:${mobile?11:12}px;">
-    <div><label style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;">Nama Pembeli</label><input id="i-tname" value="${esc(V.tempoName)}" ${I(V.onTempoName)} placeholder="Nama lengkap / toko" style="width:100%;height:${h}px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;margin-top:7px;font-family:'Hanken Grotesk',sans-serif;"></div>
-    <div><label style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;">Jatuh Tempo</label><input id="i-tdate" value="${esc(V.tempoDate)}" ${I(V.onTempoDate)} type="date" style="width:100%;height:${h}px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;margin-top:7px;font-family:'Hanken Grotesk',sans-serif;color-scheme:${V.isLight?'light':'dark'};"></div>
-  </div>`;
-}
-function marketNote(mobile){
-  return `<div style="background:var(--goldtint);border:1px solid var(--goldborder);border-radius:14px;padding:${mobile?14:15}px;${mobile?'margin-bottom:14px;':''}font-size:${mobile?13:13.5}px;color:var(--goldsoft);">Dicatat sebagai penjualan <b style="color:var(--gold);">Marketplace</b>. Pembayaran dianggap lunas.</div>`;
-}
-function cartLineRows(V, mobile){
-  const s = mobile ? {pad:'10px 11px',name:13,sub:11,btn:28,bfs:16,qty:14,line:13,minw:64,brad:8} : {pad:'11px 12px',name:13.5,sub:11.5,btn:30,bfs:17,qty:15,line:13.5,minw:74,brad:9};
-  return V.cartLines.map(ln => `
-    <div style="display:flex;align-items:center;gap:${mobile?10:11}px;background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:13px;padding:${s.pad};">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:${s.name}px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ln.name)}</div>
-        <div style="font-size:${s.sub}px;color:var(--muted);">${ln.priceText} · ${esc(ln.varian)}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:9px;">
-        <button ${A(ln.onDec)} style="width:${s.btn}px;height:${s.btn}px;border-radius:${s.brad}px;background:var(--chip);border:1px solid var(--border);color:var(--text);font-size:${s.bfs}px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">−</button>
-        <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:${s.qty}px;color:var(--text);min-width:${mobile?16:18}px;text-align:center;">${ln.qtyText}</span>
-        <button ${A(ln.onInc)} style="width:${s.btn}px;height:${s.btn}px;border-radius:${s.brad}px;background:var(--goldtint2);border:1px solid var(--goldborder);color:var(--gold);font-size:${s.bfs}px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">+</button>
-      </div>
-      <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:${s.line}px;color:var(--text);min-width:${s.minw}px;text-align:right;">${ln.lineText}</div>
-    </div>`).join('');
-}
-function catalogGrid(V, mobile){
-  const imgH = mobile?84:120, icon = mobile?26:34;
-  return V.catalog.map(p => `
-    <button ${A(p.onAdd)} class="fx-card" style="text-align:left;cursor:pointer;border:1px solid var(--border2);box-shadow:var(--cardshadow);background:var(--surface);border-radius:${mobile?14:16}px;overflow:hidden;display:flex;flex-direction:column;padding:0;font-family:'Hanken Grotesk',sans-serif;">
-      ${p.hasPhoto
-        ? `<div style="width:100%;height:${imgH}px;overflow:hidden;background:var(--surface3);"><img src="${p.photo}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;"></div>`
-        : `<div style="width:100%;height:${imgH}px;display:flex;align-items:center;justify-content:center;background:var(--surface3);">${svgDumb(icon)}</div>`}
-      <div style="padding:${mobile?'10px 11px':'13px'};display:flex;flex-direction:column;gap:${mobile?5:6}px;flex:1;">
-        <div style="font-size:${mobile?12.5:13.5}px;font-weight:600;color:var(--text);line-height:1.3;flex:1;">${esc(p.name)}</div>
-        <div style="font-size:${mobile?10.5:11.5}px;color:var(--muted);">${esc(p.varian)}</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;${mobile?'':'margin-top:2px;'}">
-          <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:${mobile?13:15}px;color:var(--gold);">${p.priceText}</span>
-          <span style="font-size:${mobile?9.5:10}px;color:#fff;background:${p.stokColor};padding:${mobile?'2px 6px':'3px 7px'};border-radius:${mobile?6:7}px;font-weight:600;">${p.stokText}</span>
-        </div>
-      </div>
-    </button>`).join('');
-}
-function tambahForm(V, mobile){
-  const h = mobile?46:48;
-  return `
-  <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;${mobile?'display:none;':''}">Unggah foto produk lalu isi detailnya. Produk langsung muncul di katalog.</p>
-  <label style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;display:block;margin-bottom:8px;">Foto Produk</label>
-  ${imageSlot(V, mobile?130:160, mobile?12:14, mobile?'Ketuk / seret untuk unggah foto':'Klik / seret untuk unggah foto')}
-  <div style="display:flex;flex-direction:column;gap:${mobile?12:14}px;">
-    <div>${lbl('Nama Produk')}<input id="i-kname" value="${esc(V.kName)}" ${I(V.onKName)} placeholder="cnt. Whey Isolate 2lb" style="${inputStyle(h)}"></div>
-    <div style="display:flex;gap:${mobile?10:12}px;">
-      <div style="flex:1;">${lbl('Varian')}<input id="i-kvar" value="${esc(V.kVar)}" ${I(V.onKVar)} placeholder="${mobile?'Rasa':'Rasa / ukuran'}" style="${inputStyle(h)}"></div>
-      <div style="flex:1;">${lbl('Stok Awal')}<input id="i-kstok" value="${esc(V.kStok)}" ${I(V.onKStok)} inputmode="numeric" placeholder="0" style="${inputStyle(h)}"></div>
-    </div>
-    <div>${lbl('Harga Jual')}<input id="i-kprice" value="${esc(V.kPriceText)}" ${I(V.onKPrice)} inputmode="numeric" placeholder="Rp0" style="width:100%;height:${mobile?50:52}px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:${mobile?20:21}px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;"></div>
-    <div>${lbl('Kategori')}
-      <select id="i-kcat" ${I(V.onKCat)} style="${inputStyle(h)}cursor:pointer;">
-        ${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.kCat?' selected':''}>${esc(c)}</option>`).join('')}
-      </select>
-    </div>
-  </div>
-  <div style="display:flex;gap:${mobile?9:10}px;margin-top:${mobile?18:20}px;">
-    <button ${A(V.goKatalogTab)} style="flex:none;width:${mobile?96:120}px;height:${mobile?50:52}px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-    <button ${A(V.saveKProduct)} style="flex:1;height:${mobile?50:52}px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;letter-spacing:.04em;cursor:pointer;">${mobile?'SIMPAN':'SIMPAN &amp; TAMBAH KE KATALOG'}</button>
-  </div>`;
-}
-function tabButtons(V, h, rad, flex){
-  const b = (handler, seg, label) => `<button ${A(handler)} style="${flex?'flex:1;':'padding:0 22px;flex:none;'}height:${h}px;border-radius:${rad}px;cursor:pointer;white-space:nowrap;font-family:'Saira',sans-serif;font-weight:700;font-size:${flex?13:14}px;border:1px solid ${seg.bd};background:${seg.bg};color:${seg.cl};">${label}</button>`;
-  return b(V.goKatalogTab, V.katalogTabSeg, 'Katalog') + b(V.goTambahTab, V.tambahTabSeg, '+ Tambah Produk');
-}
-
-/* ================= CASHIER (desktop) ================= */
-function cashierDesktopHtml(V){
-  return `
-  <div style="height:100dvh;display:flex;flex-direction:column;">
-    <div style="flex:none;height:64px;border-bottom:1px solid var(--divider);display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:var(--panel);">
-      <div style="display:flex;align-items:center;gap:13px;">
-        <div style="width:38px;height:38px;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);display:flex;align-items:center;justify-content:center;">${svgDumb(20)}</div>
-        <div>
-          <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:16px;line-height:1;">Transaksi Kasir</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;">Cabang ${esc(V.cashBranch)} · Kasir ${esc(V.who)}</div>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        ${themeBtn(V, 42, 19, 12)}
-        <button ${A(V.toggleBell)} style="position:relative;width:42px;height:42px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;">
-          ${svgBellIc(20)}
-          <span style="position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--panel);">${V.bellCount}</span>
-        </button>
-        <button ${A(V.openSettings)} style="width:42px;height:42px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;">${svgGear(20)}</button>
-      </div>
-    </div>
-    <div style="flex:1;display:flex;min-height:0;">
-      <div class="scrl" style="flex:1;overflow-y:auto;padding:22px 24px;">
-        <div style="display:flex;gap:8px;margin-bottom:18px;max-width:880px;">${tabButtons(V, 44, 12, false)}</div>
-        ${V.isKatalogTab ? `
-          <div style="display:flex;gap:12px;margin-bottom:18px;max-width:880px;">
-            <div style="flex:1;position:relative;display:flex;align-items:center;">
-              ${svgSearchIc(18,15)}
-              <input id="i-search" value="${esc(V.search)}" ${I(V.onSearch)} placeholder="Cari produk…" style="width:100%;height:50px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;padding:0 16px 0 44px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
-            </div>
-            <button ${A(V.openScan)} style="height:50px;padding:0 18px;border-radius:14px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:14px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;gap:9px;">${svgScanIc(20)}Scan</button>
-          </div>
-          ${V.catalogEmpty ? `<div style="border:1px dashed var(--border);border-radius:16px;padding:34px;text-align:center;color:var(--dim2);font-size:14px;max-width:880px;">Belum ada produk di cabang ini. Tambahkan lewat tab "+ Tambah Produk".</div>` : ''}
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;">${catalogGrid(V,false)}</div>
-        ` : ''}
-        ${V.isTambahTab ? `<div style="max-width:560px;">${tambahForm(V,false)}</div>` : ''}
-      </div>
-      <div style="width:432px;flex:none;border-left:1px solid var(--divider);background:var(--panel);display:flex;flex-direction:column;min-height:0;">
-        <div style="flex:none;padding:18px 22px 14px;border-bottom:1px solid var(--divider);display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:17px;">Keranjang</span>
-          <span style="font-size:13px;color:var(--gold);">${V.cartCountText}</span>
-        </div>
-        <div class="scrl" style="flex:1;overflow-y:auto;padding:16px 22px;">
-          ${V.cartEmpty ? `<div style="border:1px dashed var(--border);border-radius:16px;padding:40px 20px;text-align:center;color:var(--dim2);font-size:14px;">Keranjang kosong.<br>Klik produk untuk menambah.</div>` : ''}
-          ${V.cartHasItems ? `
-            <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:18px;">${cartLineRows(V,false)}</div>
-            <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Metode Pembayaran</div>
-            ${payButtons(V, 44, 12, 8)}
-            ${V.isTunai ? tunaiBox(V,false) : ''}
-            ${V.isTempo ? tempoBox(V,false) : ''}
-            ${V.isMarket ? marketNote(false) : ''}
-          ` : ''}
-        </div>
-        ${V.cartHasItems ? `
-          <div style="flex:none;padding:16px 22px 20px;border-top:1px solid var(--divider);">
-            <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:13px;">
-              <span style="font-size:14px;color:var(--muted);">Total Belanja</span>
-              <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:34px;line-height:1;">${V.cartTotalText}</span>
-            </div>
-            <button ${A(V.completeSale)} class="fx-press" style="width:100%;height:58px;border:none;border-radius:15px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:900;font-size:17px;letter-spacing:.05em;cursor:pointer;box-shadow:0 14px 28px -12px rgba(212,175,55,.7);">SELESAIKAN TRANSAKSI</button>
-          </div>` : ''}
-      </div>
-    </div>
-  </div>`;
-}
-
-/* ================= CASHIER (mobile) ================= */
-function cashierMobileHtml(V){
-  return `
-  <div style="height:100dvh; display:flex; flex-direction:column;">
-    <div style="flex:none; padding:10px 16px 12px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--divider);">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <div style="width:34px;height:34px;border-radius:11px;background:var(--goldtint);border:1px solid var(--goldborder);display:flex;align-items:center;justify-content:center;">${svgDumb(18)}</div>
-        <div>
-          <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:var(--text);line-height:1;">Kasir</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:3px;">Cabang ${esc(V.cashBranch)}</div>
-        </div>
-      </div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        ${V.isAdmin ? `<button ${A(V.goModeScreen)} style="background:var(--hover);border:1px solid var(--border);color:var(--text2);border-radius:9px;padding:6px 9px;font-size:11px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Mode</button>` : ''}
-        ${themeBtn(V, 38, 17, 11)}
-        <button ${A(V.toggleBell)} style="position:relative;width:38px;height:38px;border-radius:11px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;">
-          ${svgBellIc(19)}
-          <span style="position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);">${V.bellCount}</span>
-        </button>
-        <button ${A(V.openSettings)} style="width:38px;height:38px;border-radius:11px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;">${svgGear(18)}</button>
-      </div>
-    </div>
-    <div class="scrl" style="flex:1; overflow-y:auto; padding:14px 16px 16px;">
-      <div style="display:flex;gap:8px;margin-bottom:14px;">${tabButtons(V, 40, 11, true)}</div>
-      ${V.isKatalogTab ? `
-        <div style="display:flex; gap:9px; margin-bottom:14px;">
-          <div style="flex:1; position:relative; display:flex; align-items:center;">
-            ${svgSearchIc(17,13)}
-            <input id="i-search" value="${esc(V.search)}" ${I(V.onSearch)} placeholder="Cari produk…" style="width:100%;height:46px;border-radius:13px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;padding:0 14px 0 38px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
-          </div>
-          <button ${A(V.openScan)} style="width:46px;height:46px;flex:none;border-radius:13px;background:var(--goldtint);border:1px solid var(--goldborder);display:flex;align-items:center;justify-content:center;cursor:pointer;">${svgScanIc(20)}</button>
-        </div>
-        ${V.catalogEmpty ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;margin-bottom:14px;">Belum ada produk di cabang ini. Tambahkan lewat tab "+ Tambah Produk".</div>` : ''}
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:18px;">${catalogGrid(V,true)}</div>
-      ` : ''}
-      ${V.isTambahTab ? `<div style="margin-bottom:18px;">${tambahForm(V,true)}</div>` : ''}
-    </div>
-    ${V.cartHasItems ? `
-      <button ${A(V.openCartSheet)} style="flex:none;width:100%;height:64px;padding:0 18px;border:none;border-top:1px solid var(--divider);background:var(--panel);display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">
-        <span style="display:flex;align-items:center;gap:12px;">
-          <span style="width:40px;height:40px;flex:none;border-radius:12px;background:var(--goldtint2);display:flex;align-items:center;justify-content:center;">${svgCartIc(19)}</span>
-          <span style="text-align:left;">
-            <span style="display:block;font-size:11.5px;color:var(--muted);">${V.cartCountText}</span>
-            <span style="display:block;font-family:'Saira',sans-serif;font-weight:800;font-size:18px;color:var(--text);">${V.cartTotalText}</span>
-          </span>
-        </span>
-        <span style="display:flex;align-items:center;gap:7px;color:var(--gold);font-size:13px;font-weight:700;">
-          Lihat Keranjang
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 15l6-6 6 6" stroke="#D4AF37" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-        </span>
-      </button>` : ''}
-  </div>
-  ${V.cartSheetOpen ? `
-    <div ${A(V.closeCartSheet)} style="position:fixed;inset:0;background:var(--scrim);z-index:55;"></div>
-    <div class="scrl" style="position:fixed;left:0;right:0;bottom:0;z-index:56;max-height:88dvh;overflow-y:auto;background:var(--panel);border-radius:22px 22px 0 0;box-shadow:0 -20px 50px -10px var(--shadowc);${V.pop('cartSheet')}">
-      <div style="position:sticky;top:0;background:var(--panel);z-index:2;padding:10px 18px 12px;border-bottom:1px solid var(--divider);">
-        <div style="width:40px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 12px;"></div>
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:17px;">Keranjang <span style="color:var(--gold);font-weight:600;font-size:13px;">${V.cartCountText}</span></span>
-          <button ${A(V.closeCartSheet)} style="width:32px;height:32px;border-radius:10px;background:var(--chip);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:16px;line-height:1;">×</button>
-        </div>
-      </div>
-      <div style="padding:16px 18px 22px;">
-        ${V.cartHasItems ? `
-          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">${cartLineRows(V,true)}</div>
-          <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Metode Pembayaran</div>
-          ${payButtons(V, 42, 11, 7)}
-          ${V.isTunai ? tunaiBox(V,true) : ''}
-          ${V.isTempo ? tempoBox(V,true) : ''}
-          ${V.isMarket ? marketNote(true) : ''}
-          <div style="display:flex;align-items:flex-end;justify-content:space-between;margin:4px 0 12px;">
-            <span style="font-size:13px;color:var(--muted);">Total Belanja</span>
-            <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:30px;color:var(--text);line-height:1;">${V.cartTotalText}</span>
-          </div>
-          <button ${A(V.completeSale)} class="fx-press" style="width:100%;height:56px;border:none;border-radius:15px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:900;font-size:17px;letter-spacing:.06em;cursor:pointer;box-shadow:0 14px 28px -12px rgba(212,175,55,.7);display:flex;align-items:center;justify-content:center;gap:10px;">SELESAIKAN TRANSAKSI</button>
-        ` : ''}
-      </div>
-    </div>` : ''}`;
 }
 
 /* ================= ADMIN sections ================= */
@@ -1744,8 +1380,7 @@ function html(V){
   return `<div class="ss-root ${V.themeClass}" style="min-height:100dvh; width:100%; max-width:100vw; background:var(--bg); color:var(--text); font-family:'Hanken Grotesk',system-ui,sans-serif; position:relative; overflow:hidden;">
     ${V.scrLogin ? loginHtml(V) : ''}
     ${V.scrMode ? modeHtml(V) : ''}
-    ${V.cashierDesktop ? cashierDesktopHtml(V) : ''}
-    ${V.cashierMobile ? cashierMobileHtml(V) : ''}
+    ${V.scrCashier ? renderCashier(V) : ''}
     ${V.adminShell ? adminHtml(V) : ''}
     ${V.scrSettings ? settingsHtml(V) : ''}
     ${V.bell ? bellHtml(V) : ''}
@@ -1768,7 +1403,7 @@ function render(){
   // render ulang (full re-render tiap interaksi membuat layar terasa "bergerak").
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
-    userForm:S.userForm, prodForm:S.prodForm, cartSheet:S.cartSheetOpen, more:S.more,
+    userForm:S.userForm, prodForm:S.prodForm, more:S.more,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
@@ -1803,8 +1438,6 @@ function render(){
 
 /* ================= events ================= */
 root.addEventListener('click', e => {
-  const slot = e.target.closest('.img-slot');
-  if(slot){ pickPhoto(slot.dataset.slot); return; }
   const t = e.target.closest('[data-a]');
   if(t && reg[+t.dataset.a]) reg[+t.dataset.a](e);
 });
@@ -1816,20 +1449,43 @@ root.addEventListener('keydown', e => {
   if(e.key === 'Enter' && (e.target.id === 'i-uname' || e.target.id === 'i-pass')) login();
 });
 
-const fileInput = document.createElement('input');
-fileInput.type = 'file';
-fileInput.accept = 'image/*';
-fileInput.style.display = 'none';
-document.body.appendChild(fileInput);
-let pendingPhotoSlot = null;
-function pickPhoto(slot){ pendingPhotoSlot = slot; fileInput.value = ''; fileInput.click(); }
-fileInput.addEventListener('change', () => {
-  const f = fileInput.files && fileInput.files[0];
-  if(!f || !pendingPhotoSlot) return;
-  const r = new FileReader();
-  r.onload = () => { slotImages[pendingPhotoSlot] = r.result; render(); };
-  r.readAsDataURL(f);
-});
+/* ============ Kontrak runtime untuk modul kasir (public/js/kasir.js) ============
+   app.js merender seluruh admin + login + mode. Layar kasir (S.screen==='cashier')
+   didelegasikan ke modul kasir. Teman yang pegang kasir cukup:
+
+     window.SS.registerCashier(function(V){ return '<div>...HTML kasir...</div>'; });
+
+   Selama fungsi itu berjalan (di dalam render), pakai:
+     SS.A(handler)  -> untuk onclick   (sisipkan di atribut tombol)
+     SS.I(handler)  -> untuk oninput   (sisipkan di atribut input)
+     SS.setState({...})  ubah state & render ulang
+     SS.api(path, method, body)  panggil backend (CSRF & error sudah diurus)
+     SS.flash(pesan)  toast; SS.esc/SS.rp  escape & format Rupiah
+     SS.DB.products / SS.DB.categories  data; SS.USER  user aktif
+     SS.go('mode') / SS.go('settings')  navigasi antar layar
+   Detail lengkap ada di header public/js/kasir.js. */
+let cashierRenderer = null;
+function renderCashier(V){ return cashierRenderer ? cashierRenderer(V) : cashierPlaceholder(V); }
+function cashierPlaceholder(V){
+  const btn = (handler, label, gold) => `<button ${A(handler)} style="height:44px;padding:0 18px;border-radius:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:600;border:1px solid ${gold?'var(--goldborder)':'var(--border)'};background:${gold?'var(--goldtint)':'var(--surface2)'};color:${gold?'var(--gold)':'var(--text2)'};">${label}</button>`;
+  return `<div style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;gap:16px;background:var(--bg);color:var(--text);">
+    <div style="width:74px;height:74px;border-radius:20px;background:var(--goldtint);border:1px solid var(--goldborder);display:flex;align-items:center;justify-content:center;">${svgCartIc(34)}</div>
+    <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:23px;">Halaman Kasir</div>
+    <div style="font-size:14px;color:var(--muted);max-width:440px;line-height:1.6;">Bagian kasir sedang dikembangkan oleh tim. Kode &amp; panduannya ada di <b style="color:var(--text2);">public/js/kasir.js</b>.</div>
+    <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;justify-content:center;">
+      ${V.isAdmin ? btn(V.goModeScreen, 'Ganti Mode', true) : ''}
+      ${btn(V.openSettings, 'Pengaturan')}
+      ${btn(V.logout, 'Keluar')}
+    </div>
+  </div>`;
+}
+
+// ekspose runtime minimal untuk modul kasir (dibaca oleh public/js/kasir.js)
+window.SS = {
+  get S(){ return S; }, get DB(){ return DB; }, get USER(){ return USER; },
+  setState, api, flash, render, A, I, esc, rp, rpShort, ic, go, logout,
+  registerCashier(fn){ cashierRenderer = fn; if(S.screen==='cashier') render(); },
+};
 
 let rzT;
 window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(()=>setState({ vw: window.innerWidth }), 100); });

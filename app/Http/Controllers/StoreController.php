@@ -8,7 +8,6 @@ use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\Supplier;
 use App\Models\Transaction;
-use App\Models\TransactionItem;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -178,72 +177,14 @@ class StoreController extends Controller
 
     /* ---------- writes ---------- */
 
-    public function storeTransaction(Request $request)
-    {
-        $data = $request->validate([
-            'branch' => ['required', 'string', 'exists:branches,name'],
-            'method' => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
-            'cash' => ['nullable', 'integer', 'min:0'],
-            'tempo_name' => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
-            'tempo_due' => ['nullable', 'date'],
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.id' => ['required', 'integer', 'exists:products,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
-        ]);
-
-        $branch = Branch::where('name', $data['branch'])->firstOrFail();
-
-        return DB::transaction(function () use ($data, $branch, $request) {
-            $total = 0;
-            $lines = [];
-            foreach ($data['items'] as $line) {
-                $product = Product::lockForUpdate()->findOrFail($line['id']);
-                if ($product->branch_id !== $branch->id) {
-                    return response()->json(['message' => 'Produk bukan milik cabang ini.'], 422);
-                }
-                if ($product->stok < $line['qty']) {
-                    return response()->json(['message' => "Stok {$product->name} tidak cukup (sisa {$product->stok})."], 422);
-                }
-                $total += $product->harga * $line['qty'];
-                $lines[] = [$product, $line['qty']];
-            }
-
-            $cash = $data['cash'] ?? null;
-            if ($data['method'] === 'tunai' && ($cash === null || $cash < $total)) {
-                return response()->json(['message' => 'Uang yang diterima masih kurang.'], 422);
-            }
-
-            $trx = Transaction::create([
-                'branch_id' => $branch->id,
-                'user_id' => $request->user()->id,
-                'method' => $data['method'],
-                'total' => $total,
-                'cash' => $data['method'] === 'tunai' ? $cash : null,
-                'change' => $data['method'] === 'tunai' ? $cash - $total : null,
-            ]);
-            foreach ($lines as [$product, $qty]) {
-                TransactionItem::create([
-                    'transaction_id' => $trx->id, 'product_id' => $product->id,
-                    'branch_id' => $branch->id,
-                    'qty' => $qty, 'price' => $product->harga,
-                ]);
-                $product->decrement('stok', $qty);
-            }
-
-            if ($data['method'] === 'tempo') {
-                Receivable::create([
-                    'name' => $data['tempo_name'],
-                    'amount' => $total,
-                    'trx_date' => now()->toDateString(),
-                    'due_date' => $data['tempo_due'] ?? now()->addDays(7)->toDateString(),
-                    'branch_id' => $branch->id,
-                    'transaction_id' => $trx->id,
-                ]);
-            }
-
-            return response()->json(['ok' => true, 'total' => $total, 'change' => $trx->change ?? 0]);
-        });
-    }
+    // ============================================================
+    // BAGIAN KASIR — DIKOSONGKAN untuk dikerjakan tim kasir.
+    // Endpoint simpan penjualan (POST /api/transactions) & tambah produk
+    // (POST /api/products) beserta logika potong stok + tempo→piutang
+    // DIHAPUS. Silakan bangun ulang di sini (atau controller sendiri).
+    // Kontrak yang diandalkan frontend kasir ada di public/js/kasir.js.
+    // Skema tabel transactions/transaction_items/receivables masih ada.
+    // ============================================================
 
     public function payReceivable(Request $request, Receivable $receivable)
     {
@@ -257,54 +198,6 @@ class StoreController extends Controller
     {
         abort_unless($request->user()->role === 'Admin', 403, 'Hanya admin yang boleh melakukan ini.');
     }
-
-    public function storeProduct(Request $request)
-    {
-        $data = $request->validate([
-            'name'     => ['required', 'string', 'max:120'],
-            'varian'   => ['nullable', 'string', 'max:60'],
-            'harga'    => ['required', 'integer', 'min:1'],
-            'modal'    => ['nullable', 'integer', 'min:0'],
-            'stok'     => ['nullable', 'integer', 'min:0'],
-            'kategori' => ['required', Rule::exists('categories', 'name')],
-            'branch'   => ['required', 'string', 'exists:branches,name'],
-            'barcode'  => ['nullable', 'string', 'max:60'],
-            'exp'      => ['nullable', 'string', 'max:7'],   // format YYYY-MM
-            'photo'    => ['nullable', 'string'],             // data URL dari kamera/galeri
-        ]);
-
-        $photoPath = null;
-        if (! empty($data['photo']) && preg_match('#^data:image/(png|jpe?g|webp|gif);base64,#', $data['photo'], $m)) {
-            $bytes = base64_decode(substr($data['photo'], strpos($data['photo'], ',') + 1), true);
-            if ($bytes !== false && \strlen($bytes) <= 4 * 1024 * 1024) {
-                $ext = $m[1] === 'jpeg' ? 'jpg' : $m[1];
-                $dir = public_path('uploads');
-                if (! is_dir($dir)) {
-                    mkdir($dir);
-                }
-                $file = 'p'.now()->format('YmdHis').mt_rand(100, 999).".{$ext}";
-                file_put_contents($dir.DIRECTORY_SEPARATOR.$file, $bytes);
-                $photoPath = '/uploads/'.$file;
-            }
-        }
-
-        $product = Product::create([
-            'name'      => trim($data['name']),
-            'varian'    => trim($data['varian'] ?? '') ?: '-',
-            'harga'     => $data['harga'],
-            'modal'     => $data['modal'] ?? 0,
-            'kategori'  => $data['kategori'],
-            'stok'      => $data['stok'] ?? 0,
-            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
-            'barcode'   => $data['barcode'] ?? null,
-            'exp'       => $data['exp'] ?? null,
-            'photo'     => $photoPath,
-            'custom'    => true,
-        ]);
-
-        return response()->json(['ok' => true, 'id' => $product->id]);
-    }
-
 
     public function storeBranch(Request $request)
     {
