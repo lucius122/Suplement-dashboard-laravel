@@ -14,8 +14,5 @@
   @if (app()->environment('local') && request()->has('e2e'))
     <script src="{{ asset('__test.js') }}"></script>
   @endif
-  @if (app()->environment('local') && request()->has('shot'))
-    <script src="{{ asset('__shot.js') }}"></script>
-  @endif
 </body>
 </html>
