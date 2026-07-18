@@ -122,6 +122,17 @@
       click(btn('Tutup'));
       step('chip kategori dari DB', await waitFor(() => btn('Protein') && !appEl().textContent.includes(kat)));
 
+      // tambah produk (admin) — form fungsional, tersimpan ke DB
+      click(btn('Produk & Harga'));
+      step('layar produk terbuka', await waitFor(() => has('Margin') && btn('+ Tambah Produk')));
+      click(btn('+ Tambah Produk'));
+      step('form tambah produk terbuka', await waitFor(() => !!document.getElementById('i-pname') && !!document.getElementById('i-pbranch')));
+      const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
+      type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
+      step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));
+      click(btn('SIMPAN PRODUK'));
+      step('produk baru tersimpan ke DB', await waitFor(() => has(pnm) && has('ditambahkan')));
+
       // Bagian kasir dikosongkan untuk tim kasir → admin "Buka Kasir" menampilkan
       // layar yang dirender modul kasir.js (placeholder starter), bukan POS penuh.
       click(btn('Ganti Mode / Kasir'));

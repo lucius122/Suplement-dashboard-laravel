@@ -199,6 +199,38 @@ class StoreController extends Controller
         abort_unless($request->user()->role === 'Admin', 403, 'Hanya admin yang boleh melakukan ini.');
     }
 
+    public function storeProduct(Request $request)
+    {
+        // Tambah produk dari layar admin "Produk & Harga" (bukan bagian kasir).
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'name'     => ['required', 'string', 'max:120'],
+            'varian'   => ['nullable', 'string', 'max:60'],
+            'harga'    => ['required', 'integer', 'min:1'],
+            'modal'    => ['nullable', 'integer', 'min:0'],
+            'stok'     => ['nullable', 'integer', 'min:0'],
+            'kategori' => ['required', Rule::exists('categories', 'name')],
+            'branch'   => ['required', 'string', 'exists:branches,name'],
+            'barcode'  => ['nullable', 'string', 'max:60'],
+            'exp'      => ['nullable', 'regex:/^\d{4}-\d{2}$/'],  // format YYYY-MM
+        ]);
+
+        $product = Product::create([
+            'name'      => trim($data['name']),
+            'varian'    => trim($data['varian'] ?? '') ?: '-',
+            'harga'     => $data['harga'],
+            'modal'     => $data['modal'] ?? 0,
+            'kategori'  => $data['kategori'],
+            'stok'      => $data['stok'] ?? 0,
+            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
+            'barcode'   => $data['barcode'] ?? null,
+            'exp'       => $data['exp'] ?? null,
+            'custom'    => true,
+        ]);
+
+        return response()->json(['ok' => true, 'id' => $product->id]);
+    }
+
     public function storeBranch(Request $request)
     {
         $this->assertAdmin($request);

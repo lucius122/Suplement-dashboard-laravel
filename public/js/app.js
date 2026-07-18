@@ -63,6 +63,7 @@ let S = {
   scan: false, userForm: false, prodForm: false,
   period: 'Harian', uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan',
+  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'', pBranch:'', // form tambah produk (admin)
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
   // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
@@ -148,6 +149,25 @@ async function logout(){
 async function markPaid(id){
   try { await api('/api/receivables/'+id+'/pay', 'POST', {}); await loadAll(); flash('Tagihan ditandai lunas'); }
   catch(e) { flash(e.message); }
+}
+
+async function saveProduct(){
+  if(!S.pName.trim()){ flash('Isi nama produk dulu'); return; }
+  const harga = parseInt(S.pHarga)||0;
+  if(!harga){ flash('Isi harga jual dulu'); return; }
+  if(!S.pBranch){ flash('Pilih cabang dulu'); return; }
+  const nama = S.pName.trim();
+  try {
+    await api('/api/products', 'POST', {
+      name: nama, varian: S.pVar.trim() || '-', harga,
+      modal: parseInt(S.pModal)||0, stok: parseInt(S.pStok)||0,
+      kategori: S.pKat, branch: S.pBranch,
+      barcode: S.pBarcode.trim() || null, exp: S.pExp || null,
+    });
+    setState({ prodForm:false });
+    await loadAll();
+    flash('Produk "'+nama+'" ditambahkan');
+  } catch(e) { flash(e.message); }
 }
 
 async function saveBranch(){
@@ -529,8 +549,22 @@ function renderVals(){
     uCabangTiles: allBranches().map(b=>({ label:b, on:S.uCabang===b, onClick:()=>setState({uCabang:b}) })),
     saveUser:()=>saveUser(),
     produkRows, prodForm:S.prodForm,
-    openProdForm:()=>setState({prodForm:true}), closeProdForm:()=>setState({prodForm:false}),
-    saveProd:()=>{ setState({prodForm:false}); flash('Produk tersimpan'); },
+    kCatOptions: DB.categories.map(c=>c.name),
+    prodBranchOptions: allBranches(),
+    openProdForm:()=>setState({prodForm:true, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
+      pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'',
+      pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
+    closeProdForm:()=>setState({prodForm:false}),
+    pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
+    pVar:S.pVar, onPVar:(e)=>setState({pVar:e.target.value}),
+    pKat:S.pKat, onPKat:(e)=>setState({pKat:e.target.value}),
+    pHargaText: S.pHarga ? rp(parseInt(S.pHarga)) : '', onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
+    pModalText: S.pModal ? rp(parseInt(S.pModal)) : '', onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
+    pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
+    pBarcode:S.pBarcode, onPBarcode:(e)=>setState({pBarcode:e.target.value}),
+    pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
+    pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
+    saveProd:()=>saveProduct(),
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
     uPeriod:S.uPeriod,
     uPeriodChips: ['Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.uPeriod===p), onClick:()=>changeUPeriod(p)})),
@@ -1319,21 +1353,25 @@ function prodFormHtml(V){
   <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah Produk</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <div>${lbl('Nama Produk')}<input placeholder="Nama produk" style="${inputStyle(48)}"></div>
+      <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Varian')}<input placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-pkat" ${I(V.onPKat)} style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.pKat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Harga Jual')}<input placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Harga Modal')}<input placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Harga Jual')}<input id="i-pharga" value="${esc(V.pHargaText)}" ${I(V.onPHarga)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
       </div>
       <div style="font-size:12.5px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:10px 13px;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-pbranch" ${I(V.onPBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.pBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">${lbl('Barcode')}
-          <div style="display:flex;gap:8px;margin-top:6px;"><input placeholder="—" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:48px;flex:none;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(20)}</button></div>
+          <div style="display:flex;gap:8px;margin-top:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:48px;flex:none;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(20)}</button></div>
         </div>
-        <div style="flex:1;min-width:140px;">${lbl('Kedaluwarsa')}<input type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Kedaluwarsa')}<input id="i-pexp" value="${esc(V.pExp)}" ${I(V.onPExp)} type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:22px;">

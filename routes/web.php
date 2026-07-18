@@ -18,9 +18,9 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::get('/dashboard', [StoreController::class, 'dashboard']);
     Route::get('/sales-by-user', [StoreController::class, 'salesByUser']);
     Route::get('/sales-by-user/{username}/items', [StoreController::class, 'salesByUserItems']);
-    // Route transaksi & tambah-produk kasir DIHAPUS — dibangun ulang oleh tim kasir
-    // (lihat public/js/kasir.js). Contoh yang lazim: POST /api/transactions.
+    // Route transaksi kasir DIHAPUS — dibangun ulang oleh tim kasir (lihat public/js/kasir.js).
     Route::post('/receivables/{receivable}/pay', [StoreController::class, 'payReceivable']);
+    Route::post('/products', [StoreController::class, 'storeProduct']); // tambah produk (admin)
     Route::post('/branches', [StoreController::class, 'storeBranch']);
     Route::post('/categories', [StoreController::class, 'storeCategory']);
     Route::delete('/categories/{category}', [StoreController::class, 'deleteCategory']);
