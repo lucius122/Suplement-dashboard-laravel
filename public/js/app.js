@@ -59,6 +59,8 @@ let S = {
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
   promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
+  scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
+  uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
   // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
@@ -253,6 +255,59 @@ async function deletePromo(p){
   catch(e) { flash(e.message); }
 }
 
+/* ---- scan barcode (EAN-13 dsb.) via kamera + BarcodeDetector bawaan browser ---- */
+let scanStream = null, scanTimer = null, scanDetector = null;
+let lastScanCode = '', lastScanAt = 0;
+
+async function startScan(target){
+  setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'' });
+  if(!('BarcodeDetector' in window)){
+    setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
+    return;
+  }
+  try {
+    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
+    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+    render(); // pasang stream ke <video> (dilakukan di akhir render)
+    scanTimer = setInterval(scanTick, 280);
+  } catch(e){
+    setState({ scanMsg:'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
+  }
+}
+async function scanTick(){
+  const v = document.getElementById('scan-video');
+  if(!v || v.readyState < 2 || !scanDetector) return;
+  try {
+    const codes = await scanDetector.detect(v);
+    if(codes.length) handleScanResult(codes[0].rawValue);
+  } catch(e){ /* frame gagal dideteksi — coba lagi tick berikutnya */ }
+}
+function handleScanResult(code){
+  code = String(code||'').trim();
+  if(!code) return;
+  const now = Date.now();
+  if(code === lastScanCode && now - lastScanAt < 2500) return; // jangan spam kode yang sama
+  lastScanCode = code; lastScanAt = now;
+
+  if(S.scanTarget === 'pbarcode'){ // dari form tambah produk → isi kolom barcode
+    stopScan();
+    setState({ pBarcode: code });
+    flash('Barcode terbaca: '+code);
+    return;
+  }
+  // dari layar stok → cari produknya, buka modal tambah stok
+  const p = DB.products.find(x => x.barcode === code);
+  if(!p){ flash('Barcode '+code+' tidak cocok dengan produk mana pun'); return; }
+  stopScan();
+  setState({ restockId:p.id, restockQty:'' });
+  flash(p.name+' ditemukan — masukkan jumlah stok');
+}
+function stopScan(){
+  clearInterval(scanTimer); scanTimer = null;
+  if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  setState({ scan:false });
+}
+
 async function saveRestock(){
   const qty = parseInt(S.restockQty)||0;
   if(!qty){ flash('Isi jumlah stok yang ditambahkan'); return; }
@@ -398,7 +453,7 @@ function renderVals(){
     roleBg:u.role==='Admin'?'var(--goldtint2)':'var(--infotint)', cabang:u.cabang,
     statusText:u.active?'Aktif':'Nonaktif', statusColor:u.active?'var(--ok)':'var(--dim)',
     toggleText:u.active?'Nonaktifkan':'Aktifkan',
-    onEdit:()=>setState({userForm:true, editUserId:u.id, uName:u.name, uUname:u.uname, uPass:'', uRole:u.role, uCabang:u.cabang}),
+    onEdit:()=>setState({userForm:true, editUserId:u.id, uName:u.name, uUname:u.uname, uPass:'', uPassShow:false, uRole:u.role, uCabang:u.cabang}),
     onToggle:()=>toggleUser(u) }));
   const uRoleChips = ['Semua','Admin','Kasir'].map(r=>({ label:r, ...chip(S.userRole===r), onClick:()=>setState({userRole:r}) }));
 
@@ -577,12 +632,14 @@ function renderVals(){
     onNewBranch:(e)=>setState({newBranch:e.target.value}),
     saveBranch:()=>saveBranch(),
 
-    scan:S.scan, closeScan:()=>setState({scan:false}),
-    doScan:()=>{ setState({scan:false}); flash('Barcode terbaca: Whey Isolate 2lb'); },
+    scan:S.scan, closeScan:()=>stopScan(),
+    scanMsg:S.scanMsg,
+    scanManual:S.scanManual, onScanManual:(e)=>setState({scanManual:e.target.value}),
+    useManual:()=>handleScanResult(S.scanManual),
 
     piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0,
     tempoRows, tempoEmpty:tempoRows.length===0,
-    stokRows, catChips, openScanStok:()=>setState({scan:true}), stokEmpty:stokRows.length===0,
+    stokRows, catChips, openScanStok:()=>startScan('stok'), stokEmpty:stokRows.length===0,
     catForm:S.catForm, newCat:S.newCat,
     openCatForm:()=>setState({catForm:true, newCat:''}),
     closeCatForm:()=>setState({catForm:false}),
@@ -590,8 +647,9 @@ function renderVals(){
     saveCategory:()=>saveCategory(),
     catRows: DB.categories.map(c=>({ id:c.id, name:c.name, onDelete:()=>deleteCategory(c) })),
     userRows, uRoleChips, userForm:S.userForm,
-    openUserForm:()=>setState({userForm:true, editUserId:null, uName:'', uUname:'', uPass:'', uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
+    openUserForm:()=>setState({userForm:true, editUserId:null, uName:'', uUname:'', uPass:'', uPassShow:false, uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
     userFormIsEdit: S.editUserId !== null,
+    uPassShow:S.uPassShow, toggleUPass:()=>setState({uPassShow:!S.uPassShow}),
     closeUserForm:()=>setState({userForm:false}),
     uName:S.uName, onUName:(e)=>setState({uName:e.target.value}),
     uUname:S.uUname, onUUname:(e)=>setState({uUname:e.target.value}),
@@ -615,6 +673,7 @@ function renderVals(){
     pBarcode:S.pBarcode, onPBarcode:(e)=>setState({pBarcode:e.target.value}),
     pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
     pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
+    openScan:()=>startScan('pbarcode'), // tombol scan di form produk → isi kolom barcode
     saveProd:()=>saveProduct(),
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
     uPeriod:S.uPeriod,
@@ -1371,18 +1430,28 @@ function scanHtml(V){
       <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
       <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;">×</button>
     </div>
-    <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));">
-      <div style="position:relative;width:230px;height:230px;border-radius:20px;overflow:hidden;border:2px solid var(--goldborder);">
-        <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#222 0 3px,var(--panel) 3px 9px);opacity:.5;"></div>
-        <i style="position:absolute;left:5%;right:5%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:ssScan 1.8s ease-in-out infinite alternate;"></i>
-        <span style="position:absolute;top:8px;left:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:5px 0 0 0;"></span>
-        <span style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 5px 0 0;"></span>
-        <span style="position:absolute;bottom:8px;left:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:0 0 0 5px;"></span>
-        <span style="position:absolute;bottom:8px;right:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 0 5px 0;"></span>
-      </div>
-      <div style="position:absolute;bottom:18px;left:0;right:0;text-align:center;font-size:13px;color:var(--muted);">Arahkan kamera ke barcode produk</div>
+    <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));overflow:hidden;">
+      <video id="scan-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
+      ${V.scanMsg ? `
+        <div style="position:relative;z-index:2;max-width:320px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;font-size:13px;color:var(--text2);line-height:1.55;">${esc(V.scanMsg)}</div>
+      ` : `
+        <div style="position:relative;z-index:2;width:230px;height:230px;border-radius:20px;border:2px solid var(--goldborder);">
+          <i style="position:absolute;left:5%;right:5%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:ssScan 1.8s ease-in-out infinite alternate;"></i>
+          <span style="position:absolute;top:8px;left:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:5px 0 0 0;"></span>
+          <span style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 5px 0 0;"></span>
+          <span style="position:absolute;bottom:8px;left:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:0 0 0 5px;"></span>
+          <span style="position:absolute;bottom:8px;right:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 0 5px 0;"></span>
+        </div>
+        <div style="position:absolute;bottom:14px;left:0;right:0;z-index:2;text-align:center;font-size:13px;color:var(--text2);text-shadow:0 1px 6px rgba(0,0,0,.7);">Arahkan kamera ke barcode produk (EAN-13)</div>
+      `}
     </div>
-    <div style="padding:18px;"><button ${A(V.doScan)} style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;letter-spacing:.04em;cursor:pointer;">SIMULASI: BARCODE TERBACA</button></div>
+    <div style="padding:14px 18px 18px;">
+      ${lbl('Atau ketik nomor barcode')}
+      <div style="display:flex;gap:8px;margin-top:7px;">
+        <input id="i-scanmanual" value="${esc(V.scanManual)}" ${I(V.onScanManual)} inputmode="numeric" placeholder="cnt. 8991234500017" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:15px;letter-spacing:.06em;padding:0 14px;outline:none;font-family:'Saira',sans-serif;font-weight:600;">
+        <button ${A(V.useManual)} style="flex:none;height:48px;padding:0 18px;border-radius:12px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">GUNAKAN</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1411,7 +1480,16 @@ function userFormHtml(V){
       <div>${lbl('Nama Lengkap')}<input id="i-uname-new" value="${esc(V.uName)}" ${I(V.onUName)} placeholder="Nama user" style="${inputStyle(48)}"></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">${lbl('Username')}<input id="i-uuname-new" value="${esc(V.uUname)}" ${I(V.onUUname)} placeholder="username" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl(V.userFormIsEdit ? 'Password Baru (opsional)' : 'Password')}<input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="password" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl(V.userFormIsEdit ? 'Password Baru (opsional)' : 'Password')}
+          <div style="position:relative;">
+            <input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="${V.uPassShow ? 'text' : 'password'}" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}padding-right:46px;">
+            <button ${A(V.toggleUPass)} title="lihat-password" style="position:absolute;right:7px;bottom:7px;width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+              ${V.uPassShow
+                ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#D4AF37" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#D4AF37" stroke-width="1.7"></circle></svg>`
+                : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#6c6c74" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#6c6c74" stroke-width="1.7"></circle><path d="M4 4l16 16" stroke="#6c6c74" stroke-width="1.7" stroke-linecap="round"></path></svg>`}
+            </button>
+          </div>
+        </div>
       </div>
       <div>${lbl('Role')}
         <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">${V.uRoleTiles.map(selTile).join('')}</div>
@@ -1585,7 +1663,7 @@ function render(){
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
-  V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;';
+  V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;'; // modal tengah: keyframes menyertakan translate(-50%,-50%)
   V.popToast = prevOpen.toast ? '' : 'animation:ssToast .25s ease;';
 
   const ae = document.activeElement;
@@ -1603,6 +1681,11 @@ function render(){
   }
   lastScreen = S.screen;
   prevOpen = openNow;
+  // modal scan: innerHTML membuat <video> baru tiap render → pasang ulang stream kamera
+  if(S.scan && scanStream){
+    const v = document.getElementById('scan-video');
+    if(v && v.srcObject !== scanStream){ v.srcObject = scanStream; v.play().catch(()=>{}); }
+  }
   if(fid){
     const el = document.getElementById(fid);
     if(el){

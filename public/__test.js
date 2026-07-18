@@ -74,6 +74,12 @@
       step('form user terbuka', await waitFor(() => has('Tambah User Baru') && !!document.getElementById('i-uname-new')));
       const uname = 'tes' + String(Date.now()).slice(-6);
       type('i-uname-new', 'Tes E2E'); type('i-uuname-new', uname); type('i-upass-new', 'tes123');
+      // tombol mata: password terlihat ↔ tersembunyi
+      const eyeBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'lihat-password');
+      click(eyeBtn());
+      step('tombol mata menampilkan password', await waitFor(() => document.getElementById('i-upass-new')?.type === 'text'));
+      click(eyeBtn());
+      step('tombol mata menyembunyikan lagi', await waitFor(() => document.getElementById('i-upass-new')?.type === 'password'));
       click(btn('SIMPAN USER'));
       step('user baru tersimpan ke DB', await waitFor(() => has('@' + uname)));
       // edit user buatan tes: ganti nama → tersimpan
@@ -141,6 +147,15 @@
       type('i-restockqty', '5');
       click(btn('TAMBAHKAN'));
       step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
+
+      // scan barcode: input manual (headless tak punya kamera) → produk ketemu → modal restock
+      click(btn('Tambah Stok via Scan'));
+      step('modal scan terbuka', await waitFor(() => !!document.getElementById('i-scanmanual')));
+      type('i-scanmanual', '8991234500031'); // Creatine Monohydrate (Pleburan)
+      click(btn('GUNAKAN'));
+      step('barcode dikenali → modal restock produknya', await waitFor(() => !!document.getElementById('i-restockqty') && has('Creatine Monohydrate')));
+      click(btn('Batal'));
+      step('modal restock ditutup', await waitFor(() => !document.getElementById('i-restockqty')));
 
       // supplier: buat PO baru lalu tandai lunas
       click(btn('Pembelian'));
