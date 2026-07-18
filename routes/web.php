@@ -21,6 +21,12 @@ Route::middleware('auth')->prefix('api')->group(function () {
     // Route transaksi kasir DIHAPUS — dibangun ulang oleh tim kasir (lihat public/js/kasir.js).
     Route::post('/receivables/{receivable}/pay', [StoreController::class, 'payReceivable']);
     Route::post('/products', [StoreController::class, 'storeProduct']); // tambah produk (admin)
+    Route::post('/products/{product}/restock', [StoreController::class, 'restockProduct']);
+    Route::patch('/users/{user}', [StoreController::class, 'updateUser']);
+    Route::post('/suppliers', [StoreController::class, 'storeSupplier']);
+    Route::post('/suppliers/{supplier}/pay', [StoreController::class, 'paySupplier']);
+    Route::post('/promos', [StoreController::class, 'storePromo']);
+    Route::delete('/promos/{promo}', [StoreController::class, 'deletePromo']);
     Route::post('/branches', [StoreController::class, 'storeBranch']);
     Route::post('/categories', [StoreController::class, 'storeCategory']);
     Route::delete('/categories/{category}', [StoreController::class, 'deleteCategory']);

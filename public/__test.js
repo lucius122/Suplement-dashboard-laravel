@@ -76,10 +76,18 @@
       type('i-uname-new', 'Tes E2E'); type('i-uuname-new', uname); type('i-upass-new', 'tes123');
       click(btn('SIMPAN USER'));
       step('user baru tersimpan ke DB', await waitFor(() => has('@' + uname)));
+      // edit user buatan tes: ganti nama → tersimpan
+      const edits = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Edit');
+      click(edits()[edits().length - 1]);
+      step('form edit user terbuka', await waitFor(() => has('Edit User') && document.getElementById('i-uname-new')?.value === 'Tes E2E'));
+      type('i-uname-new', 'Tes E2E Edit');
+      click(btn('SIMPAN USER'));
+      step('edit user tersimpan ke DB', await waitFor(() => has('Tes E2E Edit') && has('Perubahan user tersimpan')));
+
       // bersihkan jejak: nonaktifkan user buatan tes (baris terbaru = paling bawah)
       const toggles = [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Nonaktifkan');
       click(toggles[toggles.length - 1]);
-      step('user tes dinonaktifkan (bersih-bersih)', await waitFor(() => has('Tes E2E dinonaktifkan')));
+      step('user tes dinonaktifkan (bersih-bersih)', await waitFor(() => has('dinonaktifkan')));
 
       click(btn('Laporan Omset'));
       step('laporan omset', await waitFor(() => has('Tren Omset') && has('Perbandingan Cabang')));
@@ -121,6 +129,46 @@
       step('kategori terhapus dari DB', await waitFor(() => !delBtnFor(kat)));
       click(btn('Tutup'));
       step('chip kategori dari DB', await waitFor(() => btn('Protein') && !appEl().textContent.includes(kat)));
+
+      // stok: restock (+ Stok) → stok bertambah di server
+      click(btn('Manajemen Stok'));
+      step('kembali ke stok utk restock', await waitFor(() => !!([...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-')))));
+      const stokCellOf = t => { const m = (t.closest('div[style*="grid"], div[style*="border-radius"]')?.textContent || '').match(/(\d+) pcs/); return m ? parseInt(m[1]) : null; };
+      const rbtn = [...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-'));
+      const stokBefore = stokCellOf(rbtn);
+      click(rbtn);
+      step('modal tambah stok terbuka', await waitFor(() => !!document.getElementById('i-restockqty')));
+      type('i-restockqty', '5');
+      click(btn('TAMBAHKAN'));
+      step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
+
+      // supplier: buat PO baru lalu tandai lunas
+      click(btn('Pembelian'));
+      step('layar supplier terbuka', await waitFor(() => has('Total Hutang ke Supplier')));
+      click(btn('+ Buat Purchase Order'));
+      step('form PO terbuka', await waitFor(() => !!document.getElementById('i-poname')));
+      const supNm = 'Supplier E2E ' + String(Date.now()).slice(-5);
+      type('i-poname', supNm); type('i-poamount', '1500000');
+      const podue = document.getElementById('i-podue'); podue.value = new Date(Date.now() + 7*864e5).toISOString().slice(0,10); podue.dispatchEvent(new Event('input', {bubbles:true}));
+      click(btn('SIMPAN PO'));
+      step('PO tersimpan ke DB', await waitFor(() => has(supNm) && has('Purchase Order dicatat')));
+      const lunasiOf = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Lunasi');
+      const nLunasi = lunasiOf().length;
+      click(lunasiOf()[lunasiOf().length - 1]); // PO terbaru = paling bawah
+      step('hutang supplier ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOf().length === nLunasi - 1));
+
+      // promo: tambah lalu hapus
+      click(btn('Promo & Bundle'));
+      step('layar promo terbuka (data DB)', await waitFor(() => has('Paket Pemula')));
+      click(btn('+ Buat Promo / Bundle'));
+      step('form promo terbuka', await waitFor(() => !!document.getElementById('i-prname')));
+      const prNm = 'Promo E2E ' + String(Date.now()).slice(-5);
+      type('i-prname', prNm); type('i-prvalue', '10%');
+      click(btn('SIMPAN PROMO'));
+      step('promo tersimpan ke DB', await waitFor(() => has(prNm) && has('Promo tersimpan')));
+      const delPromoBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'hapus-promo-' + prNm);
+      click(delPromoBtn());
+      step('promo terhapus dari DB', await waitFor(() => has('dihapus') && !delPromoBtn()));
 
       // tambah produk (admin) — form fungsional, tersimpan ke DB
       click(btn('Produk & Harga'));

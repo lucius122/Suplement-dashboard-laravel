@@ -3,16 +3,8 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], dash: {}, byUser: {}, memberItems: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {} };
 let USER = null;
-
-// promo masih statis di FE — layarnya display-only di desain, belum ada aksi backend
-const PROMOS = [
-  { name:'Paket Pemula', desc:'Whey 2lb + Shaker Bottle', type:'Bundle', value:'Hemat Rp40.000', color:'var(--gold)' },
-  { name:'Diskon Creatine', desc:'Semua varian Creatine', type:'Diskon', value:'15%', color:'var(--ok)' },
-  { name:'Bundle Recovery', desc:'BCAA + L-Glutamine', type:'Bundle', value:'Hemat Rp55.000', color:'var(--gold)' },
-  { name:'Flash Sale Vitamin', desc:'Vitamin C & Multivitamin', type:'Diskon', value:'Rp10.000', color:'var(--ok)' },
-];
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 async function api(path, method, body){
@@ -62,8 +54,11 @@ let S = {
   stokCat: 'Semua', userRole: 'Semua',
   scan: false, userForm: false, prodForm: false,
   period: 'Harian', uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
-  uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan',
+  uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
   pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'', pBranch:'', // form tambah produk (admin)
+  poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
+  promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
+  restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
   // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
@@ -214,12 +209,58 @@ async function openMemberDetail(uname){
 }
 
 async function saveUser(){
-  if(!S.uName.trim() || !S.uUname.trim() || !S.uPass){ flash('Lengkapi nama, username, dan password'); return; }
+  const edit = S.editUserId !== null;
+  if(!S.uName.trim() || !S.uUname.trim() || (!edit && !S.uPass)){ flash('Lengkapi nama, username, dan password'); return; }
+  const body = { name:S.uName.trim(), username:S.uUname.trim(), password:S.uPass || null, role:S.uRole, branch:S.uCabang };
   try {
-    await api('/api/users', 'POST', { name:S.uName.trim(), username:S.uUname.trim(), password:S.uPass, role:S.uRole, branch:S.uCabang });
+    if(edit) await api('/api/users/'+S.editUserId, 'PATCH', body);
+    else await api('/api/users', 'POST', body);
     Object.assign(S, { userForm:false });
     await loadAll();
-    flash('User baru tersimpan');
+    flash(edit ? 'Perubahan user tersimpan' : 'User baru tersimpan');
+  } catch(e) { flash(e.message); }
+}
+
+async function saveSupplier(){
+  if(!S.poName.trim()){ flash('Isi nama supplier dulu'); return; }
+  const amount = parseInt(S.poAmount)||0;
+  if(!amount){ flash('Isi nominal hutang dulu'); return; }
+  if(!S.poDue){ flash('Isi tanggal jatuh tempo dulu'); return; }
+  try {
+    await api('/api/suppliers', 'POST', { name:S.poName.trim(), amount, due:S.poDue });
+    Object.assign(S, { poForm:false });
+    await loadAll();
+    flash('Purchase Order dicatat');
+  } catch(e) { flash(e.message); }
+}
+async function paySupplier(s){
+  try { await api('/api/suppliers/'+s.id+'/pay', 'POST', {}); await loadAll(); flash('Hutang '+s.name+' ditandai lunas'); }
+  catch(e) { flash(e.message); }
+}
+
+async function savePromo(){
+  if(!S.prName.trim()){ flash('Isi nama promo dulu'); return; }
+  if(!S.prValue.trim()){ flash('Isi nilai promo (mis. 15% / Hemat Rp40.000)'); return; }
+  try {
+    await api('/api/promos', 'POST', { name:S.prName.trim(), desc:S.prDesc.trim(), type:S.prType, value:S.prValue.trim() });
+    Object.assign(S, { promoForm:false });
+    await loadAll();
+    flash('Promo tersimpan');
+  } catch(e) { flash(e.message); }
+}
+async function deletePromo(p){
+  try { await api('/api/promos/'+p.id, 'DELETE'); await loadAll(); flash('Promo "'+p.name+'" dihapus'); }
+  catch(e) { flash(e.message); }
+}
+
+async function saveRestock(){
+  const qty = parseInt(S.restockQty)||0;
+  if(!qty){ flash('Isi jumlah stok yang ditambahkan'); return; }
+  try {
+    await api('/api/products/'+S.restockId+'/restock', 'POST', { qty });
+    Object.assign(S, { restockId:null });
+    await loadAll();
+    flash('Stok ditambah '+qty+' pcs');
   } catch(e) { flash(e.message); }
 }
 async function toggleUser(u){
@@ -347,7 +388,8 @@ function renderVals(){
   const cats=['Semua', ...DB.categories.map(c=>c.name)];
   const stokRows = DB.products.filter(p=>(branch==='Semua'||p.cabang===branch) && (S.stokCat==='Semua'||p.kategori===S.stokCat)).map(p=>{
     let st,c,bg; if(p.stok<=0){st='Habis';c='var(--danger)';bg='var(--dangertint)';} else if(p.stok<=5){st='Menipis';c='var(--warn)';bg='var(--warntint)';} else {st='Aman';c='var(--ok)';bg='var(--oktint)';}
-    return { name:p.name, varian:p.varian, kategori:p.kategori, stokText:p.stok+' pcs', status:st, color:c, bg };
+    return { name:p.name, varian:p.varian, kategori:p.kategori, stokText:p.stok+' pcs', status:st, color:c, bg,
+      onRestock:()=>setState({restockId:p.id, restockQty:''}) };
   });
   const catChips = cats.map(c=>({ label:c, ...chip(S.stokCat===c), onClick:()=>setState({stokCat:c}) }));
 
@@ -356,7 +398,8 @@ function renderVals(){
     roleBg:u.role==='Admin'?'var(--goldtint2)':'var(--infotint)', cabang:u.cabang,
     statusText:u.active?'Aktif':'Nonaktif', statusColor:u.active?'var(--ok)':'var(--dim)',
     toggleText:u.active?'Nonaktifkan':'Aktifkan',
-    onEdit:()=>flash('Edit '+u.name), onToggle:()=>toggleUser(u) }));
+    onEdit:()=>setState({userForm:true, editUserId:u.id, uName:u.name, uUname:u.uname, uPass:'', uRole:u.role, uCabang:u.cabang}),
+    onToggle:()=>toggleUser(u) }));
   const uRoleChips = ['Semua','Admin','Kasir'].map(r=>({ label:r, ...chip(S.userRole===r), onClick:()=>setState({userRole:r}) }));
 
   const produkRows = DB.products.filter(p=>branch==='Semua'||p.cabang===branch).map(p=>{
@@ -426,9 +469,16 @@ function renderVals(){
 
   const supplierTotal=DB.suppliers.filter(s=>!s.paid).reduce((a,s)=>a+s.amount,0);
   const supplierRows=DB.suppliers.map(s=>{ const dl=daysLeft(s.due); const over=dl<0 && !s.paid;
-    return { name:s.name, amountText:rp(s.amount), dueText:fmtDate(s.due),
+    return { name:s.name, amountText:rp(s.amount), dueText:fmtDate(s.due), notPaid:!s.paid,
       status: s.paid?'Lunas':(over?'Terlambat':'Belum Lunas'), color: s.paid?'var(--ok)':(over?'var(--danger)':'var(--warn)'),
-      bg: s.paid?'var(--oktint)':(over?'var(--dangertint)':'var(--warntint)') }; });
+      bg: s.paid?'var(--oktint)':(over?'var(--dangertint)':'var(--warntint)'),
+      onPay:()=>paySupplier(s) }; });
+
+  const promoRows = DB.promos.map(p => ({ ...p,
+    color: p.type==='Bundle' ? 'var(--gold)' : 'var(--ok)',
+    onDelete:()=>deletePromo(p) }));
+
+  const restockProd = S.restockId !== null ? DB.products.find(p=>p.id===S.restockId) : null;
 
   return {
     scrLogin: S.screen==='login',
@@ -540,7 +590,8 @@ function renderVals(){
     saveCategory:()=>saveCategory(),
     catRows: DB.categories.map(c=>({ id:c.id, name:c.name, onDelete:()=>deleteCategory(c) })),
     userRows, uRoleChips, userForm:S.userForm,
-    openUserForm:()=>setState({userForm:true, uName:'', uUname:'', uPass:'', uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
+    openUserForm:()=>setState({userForm:true, editUserId:null, uName:'', uUname:'', uPass:'', uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
+    userFormIsEdit: S.editUserId !== null,
     closeUserForm:()=>setState({userForm:false}),
     uName:S.uName, onUName:(e)=>setState({uName:e.target.value}),
     uUname:S.uUname, onUUname:(e)=>setState({uUname:e.target.value}),
@@ -582,8 +633,31 @@ function renderVals(){
     memberTotalText: rp(memberTotal), memberTrxText: memberTrx+' transaksi',
     memberFooterLabel: mSel.size ? mSel.size+' pegawai terpilih' : mRanked.length+' pegawai',
     memberCountText: mRanked.length+' pegawai',
-    supplierRows, supplierTotalText:rp(supplierTotal), newPO:()=>flash('Form Purchase Order dibuka'),
-    promoRows:PROMOS, newPromo:()=>flash('Buat promo / bundle baru'),
+    supplierRows, supplierTotalText:rp(supplierTotal),
+    poForm:S.poForm,
+    newPO:()=>setState({poForm:true, poName:'', poAmount:'', poDue:''}),
+    closePoForm:()=>setState({poForm:false}),
+    poName:S.poName, onPoName:(e)=>setState({poName:e.target.value}),
+    poAmountText: S.poAmount ? rp(parseInt(S.poAmount)) : '', onPoAmount:(e)=>setState({poAmount:(e.target.value||'').replace(/\D/g,'')}),
+    poDue:S.poDue, onPoDue:(e)=>setState({poDue:e.target.value}),
+    saveSupplier:()=>saveSupplier(),
+
+    promoRows,
+    promoForm:S.promoForm,
+    newPromo:()=>setState({promoForm:true, prName:'', prDesc:'', prType:'Bundle', prValue:''}),
+    closePromoForm:()=>setState({promoForm:false}),
+    prName:S.prName, onPrName:(e)=>setState({prName:e.target.value}),
+    prDesc:S.prDesc, onPrDesc:(e)=>setState({prDesc:e.target.value}),
+    prValue:S.prValue, onPrValue:(e)=>setState({prValue:e.target.value}),
+    prTypeTiles: ['Bundle','Diskon'].map(t=>({ label:t, on:S.prType===t, onClick:()=>setState({prType:t}) })),
+    savePromo:()=>savePromo(),
+
+    restockOpen: restockProd !== null,
+    restockName: restockProd ? restockProd.name+' · '+restockProd.varian : '',
+    restockStokText: restockProd ? restockProd.stok+' pcs' : '',
+    restockQty:S.restockQty, onRestockQty:(e)=>setState({restockQty:(e.target.value||'').replace(/\D/g,'')}),
+    closeRestock:()=>setState({restockId:null}),
+    saveRestock:()=>saveRestock(),
 
     toast:S.toast,
   };
@@ -851,7 +925,7 @@ function secStokHtml(V){
           <div style="display:grid;grid-template-columns:2.4fr 1.3fr 1fr 1fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span><span style="font-weight:600;">${esc(p.name)}</span> <span style="color:var(--muted);">· ${esc(p.varian)}</span></span>
             <span style="color:var(--muted);">${p.kategori}</span>
-            <span style="font-family:'Saira',sans-serif;font-weight:700;">${p.stokText}</span>
+            <span style="display:flex;align-items:center;gap:8px;"><span style="font-family:'Saira',sans-serif;font-weight:700;">${p.stokText}</span><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="height:26px;padding:0 9px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></span>
             <span style="text-align:right;">${badge(p.color,p.bg,p.status)}</span>
           </div>`).join('')}
       </div>` : `
@@ -865,6 +939,7 @@ function secStokHtml(V){
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${p.stokText}</div>
               <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;color:${p.color};background:${p.bg};display:inline-block;margin-top:3px;">${p.status}</span>
+              <div><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="margin-top:6px;height:26px;padding:0 10px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></div>
             </div>
           </div>`).join('')}
       </div>`}
@@ -1078,11 +1153,14 @@ function secSupplierHtml(V){
           <span>Supplier</span><span>Nominal</span><span>Jatuh Tempo</span><span style="text-align:right;">Status</span>
         </div>
         ${V.supplierRows.map(s => `
-          <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 1fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+          <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 1.4fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span style="font-weight:600;">${esc(s.name)}</span>
             <span style="font-family:'Saira',sans-serif;font-weight:700;">${s.amountText}</span>
             <span style="color:var(--muted);">${s.dueText}</span>
-            <span style="text-align:right;">${badge(s.color,s.bg,s.status)}</span>
+            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+              ${badge(s.color,s.bg,s.status)}
+              ${s.notPaid ? `<button ${A(s.onPay)} style="height:32px;padding:0 12px;border-radius:9px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+            </span>
           </div>`).join('')}
       </div>` : `
       <div style="display:flex;flex-direction:column;gap:9px;">
@@ -1095,6 +1173,7 @@ function secSupplierHtml(V){
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${s.amountText}</div>
               <span style="font-size:10px;font-weight:700;color:${s.color};background:${s.bg};padding:2px 7px;border-radius:6px;display:inline-block;margin-top:3px;">${s.status}</span>
+              ${s.notPaid ? `<div><button ${A(s.onPay)} style="margin-top:7px;height:30px;padding:0 12px;border-radius:8px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button></div>` : ''}
             </div>
           </div>`).join('')}
       </div>`}
@@ -1111,7 +1190,8 @@ function secPromoHtml(V){
         <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:15px;padding:18px;display:flex;align-items:center;gap:15px;">
           <div style="width:52px;height:52px;flex:none;border-radius:14px;background:var(--goldtint);display:flex;align-items:center;justify-content:center;">${V.giftIcon}</div>
           <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:600;">${esc(p.name)}</div><div style="font-size:12px;color:var(--muted);margin-top:3px;">${esc(p.desc)}</div></div>
-          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);">${p.type}</div><div style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${p.color};">${p.value}</div></div>
+          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);">${esc(p.type)}</div><div style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${p.color};">${esc(p.value)}</div></div>
+          <button ${A(p.onDelete)} title="hapus-promo-${esc(p.name)}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
         </div>`).join('')}
     </div>
   </div>`;
@@ -1326,12 +1406,12 @@ function userFormHtml(V){
   return `
   <div ${A(V.closeUserForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
   <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah User Baru</h3>
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">${V.userFormIsEdit ? 'Edit User' : 'Tambah User Baru'}</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Lengkap')}<input id="i-uname-new" value="${esc(V.uName)}" ${I(V.onUName)} placeholder="Nama user" style="${inputStyle(48)}"></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">${lbl('Username')}<input id="i-uuname-new" value="${esc(V.uUname)}" ${I(V.onUUname)} placeholder="username" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Password')}<input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="password" placeholder="••••••" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl(V.userFormIsEdit ? 'Password Baru (opsional)' : 'Password')}<input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="password" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}"></div>
       </div>
       <div>${lbl('Role')}
         <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">${V.uRoleTiles.map(selTile).join('')}</div>
@@ -1403,6 +1483,62 @@ function catFormHtml(V){
   </div>`;
 }
 
+function poFormHtml(V){
+  return `
+  <div ${A(V.closePoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('poForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Buat Purchase Order</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Catat hutang pembelian ke supplier. Tandai lunas dari daftar saat sudah dibayar.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Nama Supplier')}<input id="i-poname" value="${esc(V.poName)}" ${I(V.onPoName)} placeholder="cnt. PT Nutrisi Prima" style="${inputStyle(48)}"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-poamount" value="${esc(V.poAmountText)}" ${I(V.onPoAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Jatuh Tempo')}<input id="i-podue" value="${esc(V.poDue)}" ${I(V.onPoDue)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closePoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveSupplier)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PO</button>
+    </div>
+  </div>`;
+}
+
+function promoFormHtml(V){
+  const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
+  return `
+  <div ${A(V.closePromoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('promoForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 16px;">Buat Promo / Bundle</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Nama Promo')}<input id="i-prname" value="${esc(V.prName)}" ${I(V.onPrName)} placeholder="cnt. Paket Pemula" style="${inputStyle(48)}"></div>
+      <div>${lbl('Deskripsi')}<input id="i-prdesc" value="${esc(V.prDesc)}" ${I(V.onPrDesc)} placeholder="cnt. Whey 2lb + Shaker Bottle" style="${inputStyle(48)}"></div>
+      <div>${lbl('Tipe')}
+        <div style="display:flex;gap:10px;margin-top:7px;">${V.prTypeTiles.map(tile).join('')}</div>
+      </div>
+      <div>${lbl('Nilai')}<input id="i-prvalue" value="${esc(V.prValue)}" ${I(V.onPrValue)} placeholder="cnt. 15% atau Hemat Rp40.000" style="${inputStyle(48)}"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closePromoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.savePromo)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PROMO</button>
+    </div>
+  </div>`;
+}
+
+function restockHtml(V){
+  return `
+  <div ${A(V.closeRestock)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('restock')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 4px;">Tambah Stok</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px;">${esc(V.restockName)} · stok sekarang <b style="color:var(--text2);">${V.restockStokText}</b></p>
+    ${lbl('Jumlah Masuk')}
+    <input id="i-restockqty" value="${esc(V.restockQty)}" ${I(V.onRestockQty)} inputmode="numeric" placeholder="0" style="width:100%;height:52px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:21px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;">
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button ${A(V.closeRestock)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveRestock)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">TAMBAHKAN</button>
+    </div>
+  </div>`;
+}
+
 function toastHtml(V){
   return `
   <div style="position:fixed;bottom:32px;left:50%;transform:translateX(-50%);z-index:60;background:var(--chip);border:1px solid var(--goldborder);border-radius:14px;padding:14px 22px;display:flex;align-items:center;gap:11px;box-shadow:0 16px 36px -10px var(--shadowc);${V.popToast}white-space:nowrap;">
@@ -1427,6 +1563,9 @@ function html(V){
     ${V.catForm ? catFormHtml(V) : ''}
     ${V.userForm ? userFormHtml(V) : ''}
     ${V.prodForm ? prodFormHtml(V) : ''}
+    ${V.poForm ? poFormHtml(V) : ''}
+    ${V.promoForm ? promoFormHtml(V) : ''}
+    ${V.restockOpen ? restockHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
   </div>`;
 }
@@ -1442,6 +1581,7 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
+    poForm:S.poForm, promoForm:S.promoForm, restock:S.restockId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';

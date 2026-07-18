@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Promo;
 use App\Models\Receivable;
 use App\Models\Supplier;
 use App\Models\Transaction;
@@ -101,6 +102,17 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($sup as $s) {
             Supplier::create(['name' => $s[0], 'amount' => $s[1], 'due_date' => now()->addDays($s[2])->toDateString(), 'paid' => $s[3]]);
+        }
+
+        // ---- promos (katalog display) ----
+        $promos = [
+            ['Paket Pemula', 'Whey 2lb + Shaker Bottle', 'Bundle', 'Hemat Rp40.000'],
+            ['Diskon Creatine', 'Semua varian Creatine', 'Diskon', '15%'],
+            ['Bundle Recovery', 'BCAA + L-Glutamine', 'Bundle', 'Hemat Rp55.000'],
+            ['Flash Sale Vitamin', 'Vitamin C & Multivitamin', 'Diskon', 'Rp10.000'],
+        ];
+        foreach ($promos as $p) {
+            Promo::create(['name' => $p[0], 'desc' => $p[1], 'type' => $p[2], 'value' => $p[3]]);
         }
 
         // ---- transactions: 6 minggu terakhir per cabang, jadi sumber angka dashboard/laporan ----
