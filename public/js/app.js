@@ -1366,7 +1366,7 @@ function bellHtml(V){
 function scanHtml(V){
   return `
   <div ${A(V.closeScan)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.pop('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.popModal('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider);">
       <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
       <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;">×</button>
@@ -1389,7 +1389,7 @@ function scanHtml(V){
 function branchFormHtml(V){
   return `
   <div ${A(V.closeBranchForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('branchForm')}">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('branchForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Tambah Cabang</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Data penjualan mulai tercatat setelah ada transaksi.</p>
     ${lbl('Nama Cabang')}
@@ -1405,7 +1405,7 @@ function userFormHtml(V){
   const selTile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:120px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${esc(t.label)}</button>`;
   return `
   <div ${A(V.closeUserForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">${V.userFormIsEdit ? 'Edit User' : 'Tambah User Baru'}</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Lengkap')}<input id="i-uname-new" value="${esc(V.uName)}" ${I(V.onUName)} placeholder="Nama user" style="${inputStyle(48)}"></div>
@@ -1430,7 +1430,7 @@ function userFormHtml(V){
 function prodFormHtml(V){
   return `
   <div ${A(V.closeProdForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah Produk</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
@@ -1464,7 +1464,7 @@ function prodFormHtml(V){
 function catFormHtml(V){
   return `
   <div ${A(V.closeCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('catForm')}">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('catForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Kelola Kategori</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk filter stok dan pengelompokan produk. Kategori yang masih dipakai produk tidak bisa dihapus.</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
@@ -1486,7 +1486,7 @@ function catFormHtml(V){
 function poFormHtml(V){
   return `
   <div ${A(V.closePoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('poForm')}">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('poForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Buat Purchase Order</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Catat hutang pembelian ke supplier. Tandai lunas dari daftar saat sudah dibayar.</p>
     <div style="display:flex;flex-direction:column;gap:12px;">
@@ -1507,7 +1507,7 @@ function promoFormHtml(V){
   const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
   return `
   <div ${A(V.closePromoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('promoForm')}">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('promoForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 16px;">Buat Promo / Bundle</h3>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>${lbl('Nama Promo')}<input id="i-prname" value="${esc(V.prName)}" ${I(V.onPrName)} placeholder="cnt. Paket Pemula" style="${inputStyle(48)}"></div>
@@ -1527,7 +1527,7 @@ function promoFormHtml(V){
 function restockHtml(V){
   return `
   <div ${A(V.closeRestock)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('restock')}">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('restock')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 4px;">Tambah Stok</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 14px;">${esc(V.restockName)} · stok sekarang <b style="color:var(--text2);">${V.restockStokText}</b></p>
     ${lbl('Jumlah Masuk')}
@@ -1585,6 +1585,7 @@ function render(){
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
+  V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;';
   V.popToast = prevOpen.toast ? '' : 'animation:ssToast .25s ease;';
 
   const ae = document.activeElement;
