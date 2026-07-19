@@ -16,6 +16,7 @@ Route::get('/me', [AuthController::class, 'me']);
 Route::middleware('auth')->prefix('api')->group(function () {
     Route::get('/bootstrap', [StoreController::class, 'bootstrap']);
     Route::get('/dashboard', [StoreController::class, 'dashboard']);
+    Route::get('/dashboard/yearly', [StoreController::class, 'dashboardYearly']);
     Route::get('/sales-by-user', [StoreController::class, 'salesByUser']);
     Route::get('/sales-by-user/{username}/items', [StoreController::class, 'salesByUserItems']);
     // Route transaksi kasir DIHAPUS — dibangun ulang oleh tim kasir (lihat public/js/kasir.js).

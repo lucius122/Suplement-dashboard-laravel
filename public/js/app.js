@@ -3,7 +3,7 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
@@ -29,8 +29,12 @@ async function api(path, method, body){
 async function loadAll(){
   const [boot, dash] = await Promise.all([api('/api/bootstrap'), api('/api/dashboard')]);
   Object.assign(DB, boot, { dash });
-  DB.byUser = {}; DB.memberItems = {};        // data berubah setelah tulis → buang cache per-anggota
-  if(USER && USER.role === 'admin') await loadByUser(S.uPeriod);
+  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; // data berubah setelah tulis → buang cache
+  if(USER && USER.role === 'admin'){
+    await loadByUser(S.uPeriod);
+    if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
+    else if(S.period === 'Tahunan') await loadYearly(S.selYear);
+  }
 }
 // penjualan per anggota: 1 periode, on-demand, di-cache per periode (khusus admin; BE menolak kasir)
 async function loadByUser(period){
@@ -43,6 +47,26 @@ async function changeUPeriod(p){
   try { await loadByUser(p); render(); } catch(e){ flash(e.message); }
 }
 
+// tren omset per tahun (Bulanan = tahun berjalan, Tahunan = tahun pilihan) — hanya
+// tahun yang sedang dilihat yang di-query, bukan semua tahun sekaligus
+async function loadYearly(year){
+  if(DB.yearly[year]) return;
+  const r = await api('/api/dashboard/yearly?year=' + year);
+  DB.yearly[year] = r;
+}
+async function changePeriod(p){
+  setState({ period:p });
+  try {
+    if(p === 'Bulanan') await loadYearly(new Date().getFullYear());
+    else if(p === 'Tahunan') await loadYearly(S.selYear);
+    render();
+  } catch(e){ flash(e.message); }
+}
+async function changeSelYear(y){
+  setState({ selYear:y });
+  try { await loadYearly(y); render(); } catch(e){ flash(e.message); }
+}
+
 /* ================= state ================= */
 let S = {
   screen: 'boot', role: null, who: '', branch: 'Pleburan', // 'boot' = latar kosong selama cek sesi
@@ -53,7 +77,7 @@ let S = {
   pf: 'Semua', pq: '',
   stokCat: 'Semua', userRole: 'Semua',
   scan: false, userForm: false, prodForm: false,
-  period: 'Harian', uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
+  period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
   pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'', pBranch:'', // form tambah produk (admin)
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
@@ -341,7 +365,7 @@ function recvView(){
   });
 }
 function allBranches(){ return DB.branches.slice(); }
-const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, year:0, trx:0, week:[], months:[], top:[] };
+const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
 function getDash(b){
   if(DB.dash[b]) return DB.dash[b];
   if(b==='Semua'){
@@ -350,14 +374,26 @@ function getDash(b){
     const sum = k => list.reduce((s,d)=>s+(d[k]||0),0);
     const maxWeek = list.reduce((a,d)=>d.week.length>a.length?d.week:a, []);
     const week = maxWeek.map((w,i)=>({ label:w.label, v: +list.reduce((s,d)=>s+((d.week[i]||{}).v||0),0).toFixed(2) }));
-    const maxMonths = list.reduce((a,d)=>(d.months||[]).length>a.length?d.months:a, []);
-    const months = maxMonths.map((m,i)=>({ label:m.label, v: +list.reduce((s,d)=>s+(((d.months||[])[i]||{}).v||0),0).toFixed(2) }));
     const tops = {};
     list.forEach(d=>d.top.forEach(t=>{ tops[t.name]=(tops[t.name]||0)+t.sold; }));
     const top = Object.entries(tops).map(([name,sold])=>({name,sold})).sort((a,b)=>b.sold-a.sold).slice(0,5);
-    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), year:sum('year'), trx:sum('trx'), week, months, top, semua:true };
+    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), trx:sum('trx'), week, top, semua:true };
   }
   return EMPTY_DASH;
+}
+const EMPTY_YEARLY = { months:[], year:0 };
+function getYearly(b, year){
+  const y = DB.yearly[year];
+  if(!y) return null; // belum termuat (loadYearly sedang jalan / belum dipicu)
+  if(y[b]) return y[b];
+  if(b==='Semua'){
+    const list = Object.values(y);
+    if(!list.length) return EMPTY_YEARLY;
+    const maxMonths = list.reduce((a,d)=>d.months.length>a.length?d.months:a, []);
+    const months = maxMonths.map((m,i)=>({ label:m.label, v: +list.reduce((s,d)=>s+((d.months[i]||{}).v||0),0).toFixed(2) }));
+    return { months, year: list.reduce((s,d)=>s+d.year,0) };
+  }
+  return EMPTY_YEARLY;
 }
 
 /* ================= view model (ported renderVals) ================= */
@@ -476,19 +512,30 @@ function renderVals(){
 
   const dtot = D.today || 1;
   const ratios={tunai:D.tunai/dtot, market:D.market/dtot, tempo:D.tempo/dtot};
+  const curYear = new Date().getFullYear();
+  const yCurrent = getYearly(branch, curYear);   // Bulanan = tahun berjalan
+  const ySel = getYearly(branch, S.selYear);     // Tahunan = tahun pilihan (bisa beda dari curYear)
   const lapMap={
     Harian:{ total:D.today, bars:D.week.map(w=>({label:w.label, v:w.v})) },
     Mingguan:{ total:Math.round(D.month/4), bars:[{label:'Mg 1',v:D.month/4*0.9/1e6},{label:'Mg 2',v:D.month/4*1.05/1e6},{label:'Mg 3',v:D.month/4*0.95/1e6},{label:'Mg 4',v:D.month/4*1.1/1e6}] },
-    Bulanan:{ total:D.month, bars:(D.months||[]).slice(-6) }, // 6 bulan terakhir (data asli)
-    Tahunan:{ total:D.year, bars:(D.months||[]) },            // Jan..bulan berjalan (data asli)
+    Bulanan:{ total:D.month, bars:(yCurrent?.months||[]).slice(-6) }, // 6 bulan terakhir (data asli)
+    Tahunan:{ total:(ySel?.year)||0, bars:ySel?.months||[] },         // tahun pilihan, data asli
   };
-  const lapSel=lapMap[S.period]; const lmax=Math.max(...lapSel.bars.map(b=>b.v), 0.1);
+  const lapSel=lapMap[S.period];
+  // loading = tab Bulanan/Tahunan tapi cache-nya belum termuat (getYearly balikin null)
+  const lapLoading = (S.period==='Bulanan' ? yCurrent : S.period==='Tahunan' ? ySel : {}) === null;
+  const lmax=Math.max(...(lapSel.bars.length?lapSel.bars.map(b=>b.v):[0]), 0.1);
   const lapBars=lapSel.bars.map((b,i)=>({label:b.label, valText:b.v.toFixed(1), h:(b.v/lmax*100).toFixed(0)+'%',
     fill:i===lapSel.bars.length-1?'linear-gradient(180deg,var(--goldhi),var(--gold))':'var(--barempty)', valColor:i===lapSel.bars.length-1?'var(--gold)':'var(--muted)'}));
   const lapTotal=lapSel.total;
   const lapMethods=[{label:'Tunai',amt:lapTotal*ratios.tunai,color:'var(--ok)'},{label:'Marketplace',amt:lapTotal*ratios.market,color:'var(--info)'},{label:'Tempo',amt:lapTotal*ratios.tempo,color:'var(--warn)'}]
     .map(m=>({label:m.label, amountText:rp(m.amt), w:(m.amt/(lapTotal||1)*100).toFixed(0)+'%', color:m.color}));
-  const periodChips=['Harian','Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>setState({period:p})}));
+  const periodChips=['Harian','Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>changePeriod(p)}));
+  // panah pilih tahun (tampil hanya saat tab Tahunan) — dibatasi 5 tahun ke belakang;
+  // ponytail: batas tetap, bukan query MIN(created_at) — cukup untuk skala toko ini
+  const yearMin = curYear-5, yearMax = curYear;
+  const onPrevYear = S.selYear>yearMin ? ()=>changeSelYear(S.selYear-1) : null;
+  const onNextYear = S.selYear<yearMax ? ()=>changeSelYear(S.selYear+1) : null;
   const abList = allBranches();
   const bcMax = Math.max(...abList.map(b=>getDash(b).month), 1);
   const branchCompare = abList.map(b=>{ const d=getDash(b); const on = branch===b || branch==='Semua';
@@ -682,6 +729,7 @@ function renderVals(){
     openScan:()=>startScan('pbarcode'), // tombol scan di form produk → isi kolom barcode
     saveProd:()=>saveProduct(),
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
+    lapLoading, selYearText:String(S.selYear), onPrevYear, onNextYear,
     uPeriod:S.uPeriod,
     uPeriodChips: ['Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.uPeriod===p), onClick:()=>changeUPeriod(p)})),
     memberRows, memberLoading: mLoading,
@@ -1060,12 +1108,21 @@ function secUsersHtml(V){
 
 function secLaporanHtml(V){
   return `<div style="${V.popScreen}">
-    <div style="display:flex;gap:8px;margin-bottom:18px;">
+    <div style="display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap;">
       ${V.periodChips.map(c => `<button ${A(c.onClick)} style="height:42px;padding:0 22px;border-radius:11px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;border:1px solid ${c.bd};background:${c.bg};color:${c.cl};">${c.label}</button>`).join('')}
+      ${V.period==='Tahunan' ? `
+        <div style="display:flex;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:11px;height:42px;padding:0 4px;">
+          <button ${A(V.onPrevYear)} title="tahun-sebelumnya" style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:${V.onPrevYear?'pointer':'default'};color:${V.onPrevYear?'var(--gold)':'var(--dim2)'};font-size:17px;display:flex;align-items:center;justify-content:center;font-family:'Hanken Grotesk',sans-serif;">‹</button>
+          <span style="min-width:48px;text-align:center;font-family:'Saira',sans-serif;font-weight:700;font-size:13.5px;">${V.selYearText}</span>
+          <button ${A(V.onNextYear)} title="tahun-berikutnya" style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:${V.onNextYear?'pointer':'default'};color:${V.onNextYear?'var(--gold)':'var(--dim2)'};font-size:17px;display:flex;align-items:center;justify-content:center;font-family:'Hanken Grotesk',sans-serif;">›</button>
+        </div>` : ''}
     </div>
     <div style="display:grid;grid-template-columns:${V.lapTopCols};gap:16px;margin-bottom:16px;">
       <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:18px;padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;">Tren Omset</span><span style="font-size:12px;color:var(--muted);">juta Rupiah</span></div>
+        ${V.lapLoading ? `
+          <div style="height:170px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">Memuat data…</div>
+        ` : `
         <div style="display:flex;align-items:flex-end;justify-content:space-between;height:170px;gap:10px;">
           ${V.lapBars.map(b => `
             <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end;">
@@ -1073,7 +1130,7 @@ function secLaporanHtml(V){
               <div style="width:100%;border-radius:7px 7px 3px 3px;background:${b.fill};height:${b.h};min-height:5px;"></div>
               <span style="font-size:10.5px;color:var(--muted);">${b.label}</span>
             </div>`).join('')}
-        </div>
+        </div>`}
       </div>
       <div style="border-radius:18px;padding:20px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);display:flex;flex-direction:column;justify-content:center;">
         <div style="font-size:13px;color:var(--goldsoft);">Total Omset (${V.period})</div>

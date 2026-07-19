@@ -125,6 +125,19 @@
       click(tahunanBtns()[0]);
       step('tren omset tahunan tampil', await waitFor(() => has('Total Omset (Tahunan)') && has('Jan')));
 
+      // panah pilih tahun: mundur satu tahun, data ikut termuat, hanya tahun itu yang di-cache (bukan semua tahun)
+      const prevYearBtn = () => appEl().querySelector('button[title="tahun-sebelumnya"]');
+      const nextYearBtn = () => appEl().querySelector('button[title="tahun-berikutnya"]');
+      const yearLabel = () => prevYearBtn()?.nextElementSibling?.textContent.trim();
+      const y0 = yearLabel();
+      click(prevYearBtn());
+      step('panah tahun mundur satu tahun', await waitFor(() => yearLabel() === String(parseInt(y0) - 1)));
+      // tunggu cache benar-benar terisi (bukan cuma label periode yang berubah sinkron)
+      step('grafik tahun sebelumnya termuat', await waitFor(() => window.SS.DB.yearly[String(parseInt(y0) - 1)] !== undefined));
+      step('cache hanya berisi tahun yang diklik (tak query semua tahun)', Object.keys(window.SS.DB.yearly).sort().join(',') === [String(parseInt(y0) - 1), y0].sort().join(','));
+      click(nextYearBtn());
+      step('panah tahun maju balik ke tahun ini', await waitFor(() => yearLabel() === y0));
+
       click(btn('Manajemen Stok'));
       step('stok terbuka', await waitFor(() => has('Tambah Stok via Scan')));
       click(btn('Kelola Kategori'));
