@@ -84,6 +84,7 @@ let S = {
   promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
+  scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
   uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
@@ -279,34 +280,69 @@ async function deletePromo(p){
   catch(e) { flash(e.message); }
 }
 
-/* ---- scan barcode (EAN-13 dsb.) via kamera + BarcodeDetector bawaan browser ---- */
-let scanStream = null, scanTimer = null, scanDetector = null;
+/* ---- scan barcode (EAN-13 dsb.) via kamera ----
+   BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
+   Chrome/Edge desktop Windows/Mac/Linux, walau versi terbaru) → fallback ZXing
+   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau native tak ada. */
+let scanStream = null, scanTimer = null, scanDetector = null, zxingReader = null;
 let lastScanCode = '', lastScanAt = 0;
 
 async function startScan(target){
   // dari form tambah produk: sembunyikan formnya dulu supaya modal scan terlihat;
   // stopScan() mengembalikannya (isian form tetap utuh di state)
   setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'', prodForm: target==='pbarcode' ? false : S.prodForm });
-  if(!('BarcodeDetector' in window)){
+  const hasNative = 'BarcodeDetector' in window;
+  const hasZxing = 'ZXing' in window;
+  if(!hasNative && !hasZxing){
     setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
   }
+  if(hasNative) scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
+  else zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
   try {
-    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
-    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
-    render(); // pasang stream ke <video> (dilakukan di akhir render)
-    scanTimer = setInterval(scanTick, 280);
+    await openScanDevice(S.scanDeviceId); // deviceId tersimpan dari sesi sebelumnya (mis. kamera DroidCam) dicoba lagi duluan
+    // label kamera baru kebaca browser SETELAH izin diberikan — makanya enumerate di sini, bukan sebelum getUserMedia
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    setState({ scanDevices: devices });
   } catch(e){
     setState({ scanMsg:'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
   }
 }
+async function openScanDevice(deviceId){
+  clearInterval(scanTimer); scanTimer = null;
+  if(scanStream) scanStream.getTracks().forEach(t => t.stop());
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId:{ exact:deviceId } } : { facingMode:'environment' },
+    });
+  } catch(e){
+    // deviceId tersimpan sudah tak valid (kamera dicabut/DroidCam mati) → jatuh ke kamera default
+    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+  }
+  setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
+  render(); // pasang stream ke <video> (dilakukan di akhir render)
+  scanTimer = setInterval(scanTick, 280);
+}
+async function changeScanDevice(deviceId){
+  try { await openScanDevice(deviceId); }
+  catch(e){ setState({ scanMsg:'Gagal ganti kamera — coba pilih lagi.' }); }
+}
+let scanBusy = false;
 async function scanTick(){
   const v = document.getElementById('scan-video');
-  if(!v || v.readyState < 2 || !scanDetector) return;
+  if(!v || v.readyState < 2 || scanBusy) return;
+  scanBusy = true;
   try {
-    const codes = await scanDetector.detect(v);
-    if(codes.length) handleScanResult(codes[0].rawValue);
+    if(scanDetector){
+      const codes = await scanDetector.detect(v);
+      if(codes.length) handleScanResult(codes[0].rawValue);
+    } else if(zxingReader){
+      // decode 1 frame; ZXing lempar exception kalau belum ketemu kode di frame ini (wajar, coba lagi tick berikutnya)
+      const result = await zxingReader.decodeFromVideoElement('scan-video');
+      if(result) handleScanResult(result.getText());
+    }
   } catch(e){ /* frame gagal dideteksi — coba lagi tick berikutnya */ }
+  finally { scanBusy = false; }
 }
 function handleScanResult(code){
   code = String(code||'').trim();
@@ -687,6 +723,7 @@ function renderVals(){
 
     scan:S.scan, closeScan:()=>stopScan(),
     scanMsg:S.scanMsg,
+    scanDevices:S.scanDevices, scanDeviceId:S.scanDeviceId, onScanDevice:(e)=>changeScanDevice(e.target.value),
     scanManual:S.scanManual, onScanManual:(e)=>setState({scanManual:e.target.value}),
     useManual:()=>handleScanResult(S.scanManual),
 
@@ -1489,9 +1526,16 @@ function scanHtml(V){
   return `
   <div ${A(V.closeScan)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
   <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.popModal('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider);">
+    <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--divider);">
       <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
-      <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;">×</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${V.scanDevices.length > 1 ? `
+          <select ${I(V.onScanDevice)} title="pilih kamera (mis. DroidCam)" style="height:34px;max-width:150px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:11px;padding:0 8px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+            ${V.scanDevices.map((d,i) => `<option value="${esc(d.deviceId)}"${d.deviceId===V.scanDeviceId?' selected':''}>${esc(d.label || ('Kamera '+(i+1)))}</option>`).join('')}
+          </select>
+        ` : ''}
+        <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;flex:none;">×</button>
+      </div>
     </div>
     <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));overflow:hidden;">
       <video id="scan-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
