@@ -117,8 +117,13 @@
       step('tabel menyusut ke 2 baris terpilih', await waitFor(() => nRows() === 2));
       click(btn('Kosongkan pilihan'));
       step('kosongkan pilihan → daftar penuh lagi', await waitFor(() => nRows() === nAll && !has('terpilih')));
-      click(btn('Tahunan'));
-      step('ganti periode (tahunan)', await waitFor(() => has('· Tahunan') && nRows() > 0 && /Rp[\d.]/.test(appEl().textContent)));
+      // dua tombol "Tahunan" di layar Laporan: [0] = Tren Omset (chip periode), terakhir = kartu per-anggota
+      const tahunanBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tahunan');
+      click(tahunanBtns()[tahunanBtns().length - 1]);
+      step('ganti periode anggota (tahunan)', await waitFor(() => has('· Tahunan') && nRows() > 0 && /Rp[\d.]/.test(appEl().textContent)));
+      // Tren Omset periode Tahunan: total setahun + bar per bulan (data asli DB)
+      click(tahunanBtns()[0]);
+      step('tren omset tahunan tampil', await waitFor(() => has('Total Omset (Tahunan)') && has('Jan')));
 
       click(btn('Manajemen Stok'));
       step('stok terbuka', await waitFor(() => has('Tambah Stok via Scan')));
@@ -193,6 +198,14 @@
       const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
       type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
       step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));
+      // scan dari form produk: form disembunyikan → modal scan → kode terdeteksi →
+      // kembali ke form dengan barcode terisi & isian lain masih utuh
+      const scanBtnInForm = [...appEl().querySelectorAll('button')].find(b => b.closest('div')?.querySelector('#i-pbarcode'));
+      click(scanBtnInForm);
+      step('scan dibuka, form produk minggir', await waitFor(() => !!document.getElementById('i-scanmanual') && !document.getElementById('i-pname')));
+      type('i-scanmanual', '1234567890123');
+      click(btn('GUNAKAN'));
+      step('kembali ke form + barcode terisi', await waitFor(() => document.getElementById('i-pbarcode')?.value === '1234567890123' && document.getElementById('i-pname')?.value === pnm));
       click(btn('SIMPAN PRODUK'));
       step('produk baru tersimpan ke DB', await waitFor(() => has(pnm) && has('ditambahkan')));
 

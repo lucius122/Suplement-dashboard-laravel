@@ -69,6 +69,16 @@ class StoreController extends Controller
             ->get()
             ->groupBy('branch_id');
 
+        // total per cabang/hari sejak awal tahun → digulung per BULAN di PHP
+        // (≤365 baris hasil agregat; DATE() portable MySQL/SQLite, tanpa DATE_FORMAT)
+        $monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        $yearDaily = DB::table('transactions')
+            ->where('created_at', '>=', now()->startOfYear())
+            ->selectRaw('branch_id, DATE(created_at) as d, SUM(total) as total')
+            ->groupBy('branch_id', 'd')
+            ->get()
+            ->groupBy('branch_id');
+
         // produk terlaris 30 hari per cabang: agregasi dulu di satu tabel
         // (pakai ti_report_idx), baru join nama produk pada hasil kecilnya
         $agg = DB::table('transaction_items')
@@ -109,6 +119,18 @@ class StoreController extends Controller
                 ->sortByDesc('sold')->take(4)->values()
                 ->map(fn ($t) => ['name' => $t->name, 'sold' => (int) $t->sold]);
 
+            // gulung harian → bulanan (Jan..bulan berjalan tahun ini)
+            $perMonth = array_fill(1, (int) now()->format('n'), 0);
+            foreach (($yearDaily[$branch->id] ?? collect()) as $row) {
+                $m = (int) substr($row->d, 5, 2);
+                if (isset($perMonth[$m])) $perMonth[$m] += (int) $row->total;
+            }
+            $months = [];
+            foreach ($perMonth as $m => $sum) {
+                $months[] = ['label' => $monthNames[$m - 1], 'v' => round($sum / 1e6, 2)];
+            }
+            $yearTotal = array_sum($perMonth);
+
             $out[$branch->name] = [
                 'today' => $todayTotal,
                 'trend' => $trend,
@@ -120,6 +142,8 @@ class StoreController extends Controller
                     ->where('created_at', '>=', now()->startOfMonth())->sum('total'),
                 'trx' => (int) $todayRows->sum('trx'),
                 'week' => $week,
+                'months' => $months,
+                'year' => $yearTotal,
                 'top' => $top,
             ];
         }

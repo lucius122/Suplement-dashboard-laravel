@@ -260,7 +260,9 @@ let scanStream = null, scanTimer = null, scanDetector = null;
 let lastScanCode = '', lastScanAt = 0;
 
 async function startScan(target){
-  setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'' });
+  // dari form tambah produk: sembunyikan formnya dulu supaya modal scan terlihat;
+  // stopScan() mengembalikannya (isian form tetap utuh di state)
+  setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'', prodForm: target==='pbarcode' ? false : S.prodForm });
   if(!('BarcodeDetector' in window)){
     setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
@@ -305,7 +307,8 @@ function handleScanResult(code){
 function stopScan(){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
-  setState({ scan:false });
+  // kembali ke form tambah produk bila scan dibuka dari sana (dibatalkan ataupun sukses)
+  setState({ scan:false, prodForm: S.scanTarget==='pbarcode' ? true : S.prodForm });
 }
 
 async function saveRestock(){
@@ -338,7 +341,7 @@ function recvView(){
   });
 }
 function allBranches(){ return DB.branches.slice(); }
-const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
+const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, year:0, trx:0, week:[], months:[], top:[] };
 function getDash(b){
   if(DB.dash[b]) return DB.dash[b];
   if(b==='Semua'){
@@ -347,10 +350,12 @@ function getDash(b){
     const sum = k => list.reduce((s,d)=>s+(d[k]||0),0);
     const maxWeek = list.reduce((a,d)=>d.week.length>a.length?d.week:a, []);
     const week = maxWeek.map((w,i)=>({ label:w.label, v: +list.reduce((s,d)=>s+((d.week[i]||{}).v||0),0).toFixed(2) }));
+    const maxMonths = list.reduce((a,d)=>(d.months||[]).length>a.length?d.months:a, []);
+    const months = maxMonths.map((m,i)=>({ label:m.label, v: +list.reduce((s,d)=>s+(((d.months||[])[i]||{}).v||0),0).toFixed(2) }));
     const tops = {};
     list.forEach(d=>d.top.forEach(t=>{ tops[t.name]=(tops[t.name]||0)+t.sold; }));
     const top = Object.entries(tops).map(([name,sold])=>({name,sold})).sort((a,b)=>b.sold-a.sold).slice(0,5);
-    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), trx:sum('trx'), week, top, semua:true };
+    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), year:sum('year'), trx:sum('trx'), week, months, top, semua:true };
   }
   return EMPTY_DASH;
 }
@@ -474,7 +479,8 @@ function renderVals(){
   const lapMap={
     Harian:{ total:D.today, bars:D.week.map(w=>({label:w.label, v:w.v})) },
     Mingguan:{ total:Math.round(D.month/4), bars:[{label:'Mg 1',v:D.month/4*0.9/1e6},{label:'Mg 2',v:D.month/4*1.05/1e6},{label:'Mg 3',v:D.month/4*0.95/1e6},{label:'Mg 4',v:D.month/4*1.1/1e6}] },
-    Bulanan:{ total:D.month, bars:[{label:'Jan',v:D.month*0.82/1e6},{label:'Feb',v:D.month*0.88/1e6},{label:'Mar',v:D.month*0.95/1e6},{label:'Apr',v:D.month*0.9/1e6},{label:'Mei',v:D.month*1.02/1e6},{label:'Jun',v:D.month/1e6}] },
+    Bulanan:{ total:D.month, bars:(D.months||[]).slice(-6) }, // 6 bulan terakhir (data asli)
+    Tahunan:{ total:D.year, bars:(D.months||[]) },            // Jan..bulan berjalan (data asli)
   };
   const lapSel=lapMap[S.period]; const lmax=Math.max(...lapSel.bars.map(b=>b.v), 0.1);
   const lapBars=lapSel.bars.map((b,i)=>({label:b.label, valText:b.v.toFixed(1), h:(b.v/lmax*100).toFixed(0)+'%',
@@ -482,7 +488,7 @@ function renderVals(){
   const lapTotal=lapSel.total;
   const lapMethods=[{label:'Tunai',amt:lapTotal*ratios.tunai,color:'var(--ok)'},{label:'Marketplace',amt:lapTotal*ratios.market,color:'var(--info)'},{label:'Tempo',amt:lapTotal*ratios.tempo,color:'var(--warn)'}]
     .map(m=>({label:m.label, amountText:rp(m.amt), w:(m.amt/(lapTotal||1)*100).toFixed(0)+'%', color:m.color}));
-  const periodChips=['Harian','Mingguan','Bulanan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>setState({period:p})}));
+  const periodChips=['Harian','Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>setState({period:p})}));
   const abList = allBranches();
   const bcMax = Math.max(...abList.map(b=>getDash(b).month), 1);
   const branchCompare = abList.map(b=>{ const d=getDash(b); const on = branch===b || branch==='Semua';
@@ -1112,7 +1118,7 @@ function secLaporanHtml(V){
           </button>
           ${V.memberDropdown ? `
             <div ${A(V.closeMemberDd)} style="position:fixed;inset:0;z-index:44;"></div>
-            <div style="position:absolute;top:48px;left:0;right:0;z-index:45;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
+            <div style="position:relative;z-index:45;margin-top:8px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
               <div style="padding:10px;border-bottom:1px solid var(--divider);position:relative;display:flex;align-items:center;">
                 ${svgSearchIc(15,22)}
                 <input id="i-membersearch" value="${esc(V.memberSearch)}" ${I(V.onMemberSearch)} placeholder="Cari nama pegawai…" style="width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;padding:0 12px 0 34px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
