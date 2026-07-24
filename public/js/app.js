@@ -138,7 +138,7 @@ const A = fn => { reg.push(fn); return `data-a="${reg.length-1}"`; };  // click 
 const I = fn => { reg.push(fn); return `data-i="${reg.length-1}"`; };  // input handler
 
 function setState(patch){ Object.assign(S, typeof patch==='function' ? patch(S) : patch); render(); }
-const go = s => () => setState({ screen:s, more:false, bell:false, navOpen:false });
+const go = s => () => setState({ screen:s, more:false, bell:false, navOpen:false, memberDropdown:false });
 
 let toastT;
 function flash(msg){ setState({ toast: msg }); clearTimeout(toastT); toastT = setTimeout(()=>setState({toast:''}), 2600); }
