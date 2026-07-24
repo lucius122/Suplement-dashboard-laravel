@@ -138,7 +138,7 @@ const A = fn => { reg.push(fn); return `data-a="${reg.length-1}"`; };  // click 
 const I = fn => { reg.push(fn); return `data-i="${reg.length-1}"`; };  // input handler
 
 function setState(patch){ Object.assign(S, typeof patch==='function' ? patch(S) : patch); render(); }
-const go = s => () => setState({ screen:s, more:false, bell:false, navOpen:false });
+const go = s => () => setState({ screen:s, more:false, bell:false, navOpen:false, memberDropdown:false });
 
 let toastT;
 function flash(msg){ setState({ toast: msg }); clearTimeout(toastT); toastT = setTimeout(()=>setState({toast:''}), 2600); }
@@ -638,22 +638,29 @@ function renderVals(){
   const mMax = Math.max(...mRanked.map(u=>u.total), 1);
   const mSel = new Set(S.selMembers);
   const toggleSel = (uname)=>{ const n=new Set(S.selMembers); if(n.has(uname)) n.delete(uname); else n.add(uname); setState({selMembers:[...n]}); };
+  const removeSel = (uname)=>{ const n=new Set(S.selMembers); n.delete(uname); setState({selMembers:[...n]}); };
   // tabel menampilkan yang dipilih; kalau belum ada yang dipilih → semua (peringkat penuh)
   const mVisible = mSel.size ? mRanked.filter(u=>mSel.has(u.uname)) : mRanked;
+  const mAllZero = mVisible.length>0 && mVisible.every(u=>u.total===0);
   const memberRows = mVisible.map(u => ({
     rank:u.rank, name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang,
     totalText:rp(u.total), trxText:u.trx+'×', trxLong:u.trx+' transaksi', w:(u.total/mMax*100).toFixed(0)+'%',
+    hasSales: u.total>0,
     open: S.memberOpen===u.uname, onDetail: ()=>openMemberDetail(u.uname),
     items: DB.memberItems[u.uname+'|'+S.uPeriod], // undefined = sedang dimuat
   }));
   // isi dropdown: seluruh pegawai, disaring oleh teks pencarian di dalam dropdown
   const mq = S.memberSearch.trim().toLowerCase();
   const memberOptions = (mq ? mRanked.filter(u => (u.name+' @'+u.uname).toLowerCase().includes(mq)) : mRanked)
-    .map(u => ({ name:u.name, unameText:'@'+u.uname, roleText:u.role, totalText:rp(u.total),
+    .map(u => ({ name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang, totalText: u.total>0?rp(u.total):'',
       checked: mSel.has(u.uname), onClick: ()=>toggleSel(u.uname) }));
+  // chip filter aktif: satu chip per pegawai terpilih, bisa dihapus satu-satu
+  const memberSelChips = mRanked.filter(u=>mSel.has(u.uname)).map(u=>({ name:u.name, onRemove:()=>removeSel(u.uname) }));
   // footer: kalau ada yang dipilih → jumlah terpilih; kalau tidak → seluruh pegawai
   const memberTotal = mVisible.reduce((s,u)=>s+u.total,0);
   const memberTrx = mVisible.reduce((s,u)=>s+u.trx,0);
+  // saran periode lebih luas utk empty-state (Tahunan = sudah paling luas, tak ada saran lagi)
+  const uPeriodWider = { Mingguan:'Bulanan', Bulanan:'Tahunan' }[S.uPeriod];
 
   const supplierTotal=DB.suppliers.filter(s=>!s.paid).reduce((a,s)=>a+s.amount,0);
   const supplierRows=DB.suppliers.map(s=>{ const dl=daysLeft(s.due); const over=dl<0 && !s.paid;
@@ -832,7 +839,11 @@ function renderVals(){
     uPeriodChips: ['Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.uPeriod===p), onClick:()=>changeUPeriod(p)})),
     memberRows, memberLoading: mLoading,
     memberNoData: !mLoading && mRanked.length===0,
-    // dropdown pilih pegawai (bisa dicari, multi-select)
+    memberAllZero: !mLoading && mAllZero,
+    memberWiderPeriodLabel: uPeriodWider, onMemberWiderPeriod: uPeriodWider ? ()=>changeUPeriod(uPeriodWider) : null,
+    // dropdown pilih pegawai (bisa dicari, multi-select) — panel di-portal ke root level
+    // (lihat memberDdPanelHtml + html(V)) supaya lolos dari ancestor overflow:hidden
+    // konten admin; posisinya dihitung dari #btn-memberdd tiap render (lihat render()).
     memberDropdown: S.memberDropdown,
     memberDdLabel: mSel.size ? mSel.size+' pegawai dipilih' : 'Semua pegawai',
     toggleMemberDd: ()=>setState({memberDropdown:!S.memberDropdown, memberSearch:''}),
@@ -840,6 +851,8 @@ function renderVals(){
     memberSearch:S.memberSearch, onMemberSearch:(e)=>setState({memberSearch:e.target.value}),
     memberOptions, memberOptionsEmpty: memberOptions.length===0,
     memberSelCount: mSel.size,
+    memberSelChips,
+    memberToolbarCountText: mSel.size ? mSel.size+' dari '+mRanked.length+' pegawai' : mRanked.length+' pegawai',
     clearMemberSel: ()=>setState({selMembers:[]}),
     memberTotalText: rp(memberTotal), memberTrxText: memberTrx+' transaksi',
     memberFooterLabel: mSel.size ? mSel.size+' pegawai terpilih' : mRanked.length+' pegawai',
@@ -978,6 +991,7 @@ function modeHtml(V){
 
 /* ================= ADMIN sections ================= */
 const badge = (color,bg,text,fs) => `<span style="font-size:${fs||11}px;font-weight:700;padding:4px 9px;border-radius:7px;color:${color};background:${bg};">${text}</span>`;
+const chevronIc = (open,size) => `<svg width="${size||11}" height="${size||11}" viewBox="0 0 24 24" fill="none" style="display:inline-block;vertical-align:middle;flex:none;transition:transform .15s ease;transform:rotate(${open?90:0}deg);"><path d="M9 6l6 6-6 6" style="stroke:var(--muted);fill:none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 
 // rincian produk yang dijual satu anggota (drill-down, dimuat saat baris diklik)
 function memberDetailHtml(m){
@@ -1281,48 +1295,45 @@ function secLaporanHtml(V){
           ${V.uPeriodChips.map(c => `<button ${A(c.onClick)} style="height:36px;padding:0 14px;border-radius:10px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;border:1px solid ${c.bd};background:${c.bg};color:${c.cl};">${c.label}</button>`).join('')}
         </div>
       </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
-        <div style="position:relative;flex:1;min-width:220px;max-width:360px;">
-          <button ${A(V.toggleMemberDd)} style="width:100%;height:42px;padding:0 14px;border-radius:11px;background:var(--input);border:1px solid ${V.memberDropdown?'var(--gold)':'var(--border)'};color:var(--text);font-size:13.5px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <div style="position:relative;z-index:1;display:flex;gap:10px;align-items:center;margin-bottom:${V.memberSelChips.length?'10px':'14px'};flex-wrap:wrap;">
+        <div style="flex:1;min-width:220px;max-width:360px;">
+          <button id="btn-memberdd" aria-expanded="${V.memberDropdown}" aria-haspopup="listbox" ${A(V.toggleMemberDd)} style="width:100%;height:42px;padding:0 14px;border-radius:11px;background:var(--input);border:1px solid ${V.memberDropdown?'var(--gold)':'var(--border)'};color:var(--text);font-size:13.5px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <span style="display:flex;align-items:center;gap:9px;min-width:0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17 20a5 5 0 0 0-10 0M12 11a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" stroke="#D4AF37" stroke-width="1.7" stroke-linecap="round"></path></svg><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${V.memberDdLabel}</span></span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M6 9l6 6 6-6" stroke="#D4AF37" stroke-width="2.4" stroke-linecap="round"></path></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;transition:transform .15s ease;transform:rotate(${V.memberDropdown?'180':'0'}deg);"><path d="M6 9l6 6 6-6" stroke="#D4AF37" stroke-width="2.4" stroke-linecap="round"></path></svg>
           </button>
-          ${V.memberDropdown ? `
-            <div ${A(V.closeMemberDd)} style="position:fixed;inset:0;z-index:44;"></div>
-            <div style="position:relative;z-index:45;margin-top:8px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
-              <div style="padding:10px;border-bottom:1px solid var(--divider);position:relative;display:flex;align-items:center;">
-                ${svgSearchIc(15,22)}
-                <input id="i-membersearch" value="${esc(V.memberSearch)}" ${I(V.onMemberSearch)} placeholder="Cari nama pegawai…" style="width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;padding:0 12px 0 34px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
-              </div>
-              <div class="scrl" style="max-height:240px;overflow-y:auto;">
-                ${V.memberSelCount ? `<button ${A(V.clearMemberSel)} style="width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid var(--divider);cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;font-weight:600;color:var(--gold);">✕ Kosongkan pilihan (${V.memberSelCount})</button>` : ''}
-                ${V.memberOptionsEmpty ? `<div style="padding:16px;text-align:center;color:var(--dim2);font-size:12.5px;">Tidak ada pegawai cocok.</div>` :
-                  V.memberOptions.map(o => `
-                    <button ${A(o.onClick)} title="opt-${esc(o.unameText)}" class="fx-hover" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:${o.checked?'var(--goldtint)':'none'};border:none;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;text-align:left;">
-                      <span style="width:20px;height:20px;flex:none;border-radius:6px;border:1.5px solid ${o.checked?'var(--gold)':'var(--border)'};background:${o.checked?'var(--goldtint2)':'transparent'};color:var(--gold);display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;">${o.checked?'✓':''}</span>
-                      <span style="flex:1;min-width:0;"><span style="font-size:13px;font-weight:600;color:var(--text);">${esc(o.name)}</span> <span style="font-size:11px;color:var(--muted);">${esc(o.unameText)} · ${o.roleText}</span></span>
-                      <span style="font-size:11.5px;color:var(--muted);white-space:nowrap;font-family:'Saira',sans-serif;">${o.totalText}</span>
-                    </button>`).join('')}
-              </div>
-            </div>` : ''}
         </div>
-        <span style="font-size:12px;color:var(--muted);">${V.memberSelCount ? 'membandingkan '+V.memberSelCount+' pegawai' : 'menampilkan semua'}</span>
+        <span style="font-size:12px;color:var(--muted);">${esc(V.memberToolbarCountText)}</span>
       </div>
+      ${V.memberSelChips.length ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+        ${V.memberSelChips.map(c => `
+          <span style="display:inline-flex;align-items:center;gap:6px;background:var(--goldtint2);color:var(--gold);border-radius:999px;padding:4px 6px 4px 12px;font-size:11.5px;font-weight:600;font-family:'Hanken Grotesk',sans-serif;">
+            ${esc(c.name)}
+            <button ${A(c.onRemove)} title="hapus-filter-${esc(c.name)}" style="width:18px;height:18px;flex:none;border-radius:999px;border:none;background:rgba(212,175,55,.2);color:var(--gold);cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;">×</button>
+          </span>`).join('')}
+      </div>` : ''}
+      <div style="min-height:320px;">
       ${V.memberLoading ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--muted);font-size:13px;">Memuat penjualan anggota…</div>`
-        : V.memberNoData ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Belum ada anggota aktif di cabang ini.</div>` : `
+        : V.memberNoData ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Belum ada anggota aktif di cabang ini.</div>`
+        : V.memberAllZero ? `
+          <div style="padding:44px 20px;text-align:center;">
+            <div style="width:52px;height:52px;margin:0 auto 14px;border-radius:15px;background:var(--surface2);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;">${ic('laporan','var(--dim)',24)}</div>
+            <div style="font-size:13.5px;color:var(--muted);margin-bottom:${V.onMemberWiderPeriod?'10px':'0'};">Belum ada transaksi ${V.uPeriod==='Mingguan'?'minggu ini':V.uPeriod==='Bulanan'?'bulan ini':'tahun ini'}.</div>
+            ${V.onMemberWiderPeriod ? `<button ${A(V.onMemberWiderPeriod)} style="background:none;border:none;color:var(--gold);font-size:12.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lihat periode ${esc(V.memberWiderPeriodLabel)} ›</button>` : ''}
+          </div>` : `
         ${V.isDesktop ? `
-          <div style="display:grid;grid-template-columns:40px 1fr 120px 170px;padding:0 12px 10px;font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+          <div style="display:grid;grid-template-columns:48px 1fr 140px 120px;padding:0 12px 10px;font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
             <span>#</span><span>Pegawai</span><span style="text-align:right;">Transaksi</span><span style="text-align:right;">Total</span>
           </div>
           <div class="scrl" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
             ${V.memberRows.map(m => `
               <div style="border:1px solid var(--border2);border-radius:13px;background:var(--surface2);padding:12px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" style="width:100%;display:grid;grid-template-columns:40px 1fr 120px 170px;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;">
+                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;display:grid;grid-template-columns:48px 1fr 140px 120px;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;border-radius:9px;">
                   <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${m.rank<=3?'var(--gold)':'var(--muted)'};">${m.rank}</span>
                   <span style="min-width:0;">
-                    <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.open?'▾':'▸'} ${esc(m.name)}</span>
-                    <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
-                    <span style="display:block;height:6px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px;max-width:280px;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>
+                    <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${chevronIc(m.open)} ${esc(m.name)}</span>
+                    <span style="display:block;font-size:11px;color:var(--text2);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
+                    ${m.hasSales ? `<span style="display:block;height:6px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px;max-width:280px;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : ''}
                   </span>
                   <span style="text-align:right;font-size:12.5px;color:var(--text2);">${m.trxLong}</span>
                   <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${m.totalText}</span>
@@ -1333,11 +1344,11 @@ function secLaporanHtml(V){
           <div class="scrl" style="max-height:60dvh;overflow-y:auto;display:flex;flex-direction:column;gap:9px;">
             ${V.memberRows.map(m => `
               <div style="border:1px solid var(--border2);border-radius:14px;background:var(--surface2);padding:13px 14px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;">
-                  <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);">${m.open?'▾':'▸'} <span style="color:${m.rank<=3?'var(--gold)':'var(--muted)'};font-family:'Saira',sans-serif;font-weight:800;">#${m.rank}</span> ${esc(m.name)}</span>
-                  <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
+                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;border-radius:10px;">
+                  <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);">${chevronIc(m.open)} <span style="color:${m.rank<=3?'var(--gold)':'var(--muted)'};font-family:'Saira',sans-serif;font-weight:800;">#${m.rank}</span> ${esc(m.name)}</span>
+                  <span style="display:block;font-size:11px;color:var(--text2);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
                   <span style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;">
-                    <span style="height:7px;border-radius:4px;background:var(--chip);overflow:hidden;flex:1;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>
+                    ${m.hasSales ? `<span style="height:7px;border-radius:4px;background:var(--chip);overflow:hidden;flex:1;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : `<span style="flex:1;"></span>`}
                     <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
                   </span>
                 </button>
@@ -1348,6 +1359,7 @@ function secLaporanHtml(V){
           <span style="font-size:13px;color:var(--muted);">Total (${V.memberFooterLabel}) · ${V.uPeriod}</span>
           <span style="white-space:nowrap;"><span style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;">${V.memberTotalText}</span> <span style="color:var(--muted);font-size:12px;">· ${V.memberTrxText}</span></span>
         </div>`}
+      </div>
     </div>
   </div>`;
 }
@@ -1626,6 +1638,32 @@ function settingsHtml(V){
 }
 
 /* ================= overlays ================= */
+// dropdown "pilih pegawai" (Penjualan per Anggota) di-portal ke sini (bukan nested di
+// dalam kartu Laporan) karena konten admin (lihat adminHtml) dibungkus scrl dengan
+// overflow-x:hidden — position:absolute nested di dalamnya akan selalu kepotong.
+// Posisi panel dihitung dari #btn-memberdd via getBoundingClientRect() tiap render()
+// (satu-satunya tempat di file ini yang butuh posisi trigger-relatif, bukan cuma
+// centered/viewport-anchored kayak modal/bell lain — makanya perlu pengukuran manual).
+function memberDdPanelHtml(V){
+  return `
+  <div ${A(V.closeMemberDd)} style="position:fixed;inset:0;z-index:49;"></div>
+  <div id="memberdd-panel" role="listbox" aria-label="Pilih pegawai" style="position:fixed;top:0;left:0;z-index:50;min-width:320px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
+    <div style="padding:10px;border-bottom:1px solid var(--divider);position:relative;display:flex;align-items:center;">
+      ${svgSearchIc(15,22)}
+      <input id="i-membersearch" value="${esc(V.memberSearch)}" ${I(V.onMemberSearch)} placeholder="Cari nama pegawai…" style="width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;padding:0 12px 0 34px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+    </div>
+    <div class="scrl" style="max-height:240px;overflow-y:auto;">
+      ${V.memberSelCount ? `<button ${A(V.clearMemberSel)} style="width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid var(--divider);cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;font-weight:600;color:var(--gold);">✕ Kosongkan pilihan (${V.memberSelCount})</button>` : ''}
+      ${V.memberOptionsEmpty ? `<div style="padding:16px;text-align:center;color:var(--dim2);font-size:12.5px;">Tidak ada pegawai cocok.</div>` :
+        V.memberOptions.map(o => `
+          <button ${A(o.onClick)} title="opt-${esc(o.unameText)}" class="fx-hover" role="option" aria-selected="${o.checked}" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:${o.checked?'var(--goldtint)':'none'};border:none;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;text-align:left;">
+            <span style="width:20px;height:20px;flex:none;border-radius:6px;border:1.5px solid ${o.checked?'var(--gold)':'var(--border)'};background:${o.checked?'var(--goldtint2)':'transparent'};color:var(--gold);display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;">${o.checked?'✓':''}</span>
+            <span style="flex:1;min-width:0;"><span style="font-size:13px;font-weight:600;color:var(--text);">${esc(o.name)}</span> <span style="font-size:11px;color:var(--text2);">${esc(o.unameText)} · ${o.roleText} · ${esc(o.cabang)}</span></span>
+            ${o.totalText ? `<span style="font-size:11.5px;color:var(--muted);white-space:nowrap;font-family:'Saira',sans-serif;">${o.totalText}</span>` : ''}
+          </button>`).join('')}
+    </div>
+  </div>`;
+}
 function bellHtml(V){
   return `
   <div ${A(V.closeBell)} style="position:fixed;inset:0;background:var(--scrim);z-index:40;"></div>
@@ -1897,6 +1935,7 @@ function html(V){
     ${V.scrCashier ? renderCashier(V) : ''}
     ${V.adminShell ? adminHtml(V) : ''}
     ${V.scrSettings ? settingsHtml(V) : ''}
+    ${V.memberDropdown ? memberDdPanelHtml(V) : ''}
     ${V.bell ? bellHtml(V) : ''}
     ${V.scan ? scanHtml(V) : ''}
     ${V.branchForm ? branchFormHtml(V) : ''}
@@ -1949,6 +1988,21 @@ function render(){
     const v = document.getElementById('scan-video');
     if(v && v.srcObject !== scanStream){ v.srcObject = scanStream; v.play().catch(()=>{}); }
   }
+  // dropdown anggota di-portal ke root (lihat memberDdPanelHtml) → posisinya tak bisa
+  // dihitung CSS murni (tak nested di bawah tombolnya lagi), diukur manual dari trigger
+  if(S.memberDropdown){
+    const btn = document.getElementById('btn-memberdd');
+    const panel = document.getElementById('memberdd-panel');
+    if(btn && panel){
+      const r = btn.getBoundingClientRect();
+      const w = Math.max(r.width, 320);
+      // jangan biarkan panel keluar tepi kanan viewport (mis. trigger dekat pinggir layar)
+      const left = Math.min(r.left, window.innerWidth - w - 12);
+      panel.style.top = (r.bottom + 8) + 'px';
+      panel.style.left = Math.max(left, 12) + 'px';
+      panel.style.width = w + 'px';
+    }
+  }
   if(fid){
     const el = document.getElementById(fid);
     if(el){
@@ -1972,6 +2026,7 @@ root.addEventListener('input', e => {
 });
 root.addEventListener('keydown', e => {
   if(e.key === 'Enter' && (e.target.id === 'i-uname' || e.target.id === 'i-pass')) login();
+  if(e.key === 'Escape' && S.memberDropdown) setState({memberDropdown:false});
 });
 
 /* ============ Kontrak runtime untuk modul kasir (public/js/kasir.js) ============
