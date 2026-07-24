@@ -115,6 +115,11 @@
       click(opts()[0]); click(opts()[1]);
       step('pilih 2 pegawai → footer terpilih', await waitFor(() => has('2 pegawai terpilih')));
       step('tabel menyusut ke 2 baris terpilih', await waitFor(() => nRows() === 2));
+      step('counter toolbar dinamis (2 dari N)', has('2 dari ' + nAll + ' pegawai'));
+      const chipBtns = () => [...appEl().querySelectorAll('button')].filter(b => (b.title || '').startsWith('hapus-filter-'));
+      step('chip filter aktif tampil (2 chip)', chipBtns().length === 2);
+      click(chipBtns()[0]);
+      step('hapus 1 chip → tersisa 1 terpilih', await waitFor(() => nRows() === 1 && has('1 dari ' + nAll + ' pegawai')));
       click(btn('Kosongkan pilihan'));
       step('kosongkan pilihan → daftar penuh lagi', await waitFor(() => nRows() === nAll && !has('terpilih')));
       // dua tombol "Tahunan" di layar Laporan: [0] = Tren Omset (chip periode), terakhir = kartu per-anggota
