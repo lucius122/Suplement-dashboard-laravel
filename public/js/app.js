@@ -121,12 +121,13 @@ function ic(name, color, size){
     supplier:['M3 6h11v10H3zM14 9h4l3 3v4h-7','M7.5 18.5a1.6 1.6 0 1 0 .01 0M16.5 18.5a1.6 1.6 0 1 0 .01 0'],
     promo:['M20 12v8H4v-8M2 7.5h20V12H2zM12 7.5V20M12 7.5C11 4 9 3 7.5 3.5S5.5 7 8 7.5M12 7.5C13 4 15 3 16.5 3.5S18.5 7 16 7.5'],
     shopee:['M5 8h14l-1 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 8Z','M9 8V6a3 3 0 0 1 6 0v2'],
+    biaya:['M8 12h8'],
     refresh:['M21 12a9 9 0 1 1-2.6-6.4','M21 3v4h-4'],
     scan:['M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M6 12h12'],
     warn:['M12 9v4M12 17h.01','M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z'],
     settings:['M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z'],
   };
-  const circles = { tempo:[12,12,9], settings:[12,12,3] };
+  const circles = { tempo:[12,12,9], settings:[12,12,3], biaya:[12,12,9] };
   let body = (P[name]||[]).map(d => `<path d="${d}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="stroke:${color};fill:none"></path>`).join('');
   if(circles[name]){ const c=circles[name]; body += `<circle cx="${c[0]}" cy="${c[1]}" r="${c[2]}" stroke-width="1.8" style="stroke:${color};fill:none"></circle>`; }
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" style="flex:none">${body}</svg>`;
