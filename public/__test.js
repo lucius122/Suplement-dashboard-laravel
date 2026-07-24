@@ -74,12 +74,26 @@
       step('form user terbuka', await waitFor(() => has('Tambah User Baru') && !!document.getElementById('i-uname-new')));
       const uname = 'tes' + String(Date.now()).slice(-6);
       type('i-uname-new', 'Tes E2E'); type('i-uuname-new', uname); type('i-upass-new', 'tes123');
+      // tombol mata: password terlihat ↔ tersembunyi
+      const eyeBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'lihat-password');
+      click(eyeBtn());
+      step('tombol mata menampilkan password', await waitFor(() => document.getElementById('i-upass-new')?.type === 'text'));
+      click(eyeBtn());
+      step('tombol mata menyembunyikan lagi', await waitFor(() => document.getElementById('i-upass-new')?.type === 'password'));
       click(btn('SIMPAN USER'));
       step('user baru tersimpan ke DB', await waitFor(() => has('@' + uname)));
+      // edit user buatan tes: ganti nama → tersimpan
+      const edits = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Edit');
+      click(edits()[edits().length - 1]);
+      step('form edit user terbuka', await waitFor(() => has('Edit User') && document.getElementById('i-uname-new')?.value === 'Tes E2E'));
+      type('i-uname-new', 'Tes E2E Edit');
+      click(btn('SIMPAN USER'));
+      step('edit user tersimpan ke DB', await waitFor(() => has('Tes E2E Edit') && has('Perubahan user tersimpan')));
+
       // bersihkan jejak: nonaktifkan user buatan tes (baris terbaru = paling bawah)
       const toggles = [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Nonaktifkan');
       click(toggles[toggles.length - 1]);
-      step('user tes dinonaktifkan (bersih-bersih)', await waitFor(() => has('Tes E2E dinonaktifkan')));
+      step('user tes dinonaktifkan (bersih-bersih)', await waitFor(() => has('dinonaktifkan')));
 
       click(btn('Laporan Omset'));
       step('laporan omset', await waitFor(() => has('Tren Omset') && has('Perbandingan Cabang')));
@@ -103,8 +117,26 @@
       step('tabel menyusut ke 2 baris terpilih', await waitFor(() => nRows() === 2));
       click(btn('Kosongkan pilihan'));
       step('kosongkan pilihan → daftar penuh lagi', await waitFor(() => nRows() === nAll && !has('terpilih')));
-      click(btn('Tahunan'));
-      step('ganti periode (tahunan)', await waitFor(() => has('· Tahunan') && nRows() > 0 && /Rp[\d.]/.test(appEl().textContent)));
+      // dua tombol "Tahunan" di layar Laporan: [0] = Tren Omset (chip periode), terakhir = kartu per-anggota
+      const tahunanBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tahunan');
+      click(tahunanBtns()[tahunanBtns().length - 1]);
+      step('ganti periode anggota (tahunan)', await waitFor(() => has('· Tahunan') && nRows() > 0 && /Rp[\d.]/.test(appEl().textContent)));
+      // Tren Omset periode Tahunan: total setahun + bar per bulan (data asli DB)
+      click(tahunanBtns()[0]);
+      step('tren omset tahunan tampil', await waitFor(() => has('Total Omset (Tahunan)') && has('Jan')));
+
+      // panah pilih tahun: mundur satu tahun, data ikut termuat, hanya tahun itu yang di-cache (bukan semua tahun)
+      const prevYearBtn = () => appEl().querySelector('button[title="tahun-sebelumnya"]');
+      const nextYearBtn = () => appEl().querySelector('button[title="tahun-berikutnya"]');
+      const yearLabel = () => prevYearBtn()?.nextElementSibling?.textContent.trim();
+      const y0 = yearLabel();
+      click(prevYearBtn());
+      step('panah tahun mundur satu tahun', await waitFor(() => yearLabel() === String(parseInt(y0) - 1)));
+      // tunggu cache benar-benar terisi (bukan cuma label periode yang berubah sinkron)
+      step('grafik tahun sebelumnya termuat', await waitFor(() => window.SS.DB.yearly[String(parseInt(y0) - 1)] !== undefined));
+      step('cache hanya berisi tahun yang diklik (tak query semua tahun)', Object.keys(window.SS.DB.yearly).sort().join(',') === [String(parseInt(y0) - 1), y0].sort().join(','));
+      click(nextYearBtn());
+      step('panah tahun maju balik ke tahun ini', await waitFor(() => yearLabel() === y0));
 
       click(btn('Manajemen Stok'));
       step('stok terbuka', await waitFor(() => has('Tambah Stok via Scan')));
@@ -121,6 +153,74 @@
       step('kategori terhapus dari DB', await waitFor(() => !delBtnFor(kat)));
       click(btn('Tutup'));
       step('chip kategori dari DB', await waitFor(() => btn('Protein') && !appEl().textContent.includes(kat)));
+
+      // stok: restock (+ Stok) → stok bertambah di server
+      click(btn('Manajemen Stok'));
+      step('kembali ke stok utk restock', await waitFor(() => !!([...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-')))));
+      const stokCellOf = t => { const m = (t.closest('div[style*="grid"], div[style*="border-radius"]')?.textContent || '').match(/(\d+) pcs/); return m ? parseInt(m[1]) : null; };
+      const rbtn = [...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-'));
+      const stokBefore = stokCellOf(rbtn);
+      click(rbtn);
+      step('modal tambah stok terbuka', await waitFor(() => !!document.getElementById('i-restockqty')));
+      type('i-restockqty', '5');
+      click(btn('TAMBAHKAN'));
+      step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
+
+      // scan barcode: input manual (headless tak punya kamera) → produk ketemu → modal restock
+      click(btn('Tambah Stok via Scan'));
+      step('modal scan terbuka', await waitFor(() => !!document.getElementById('i-scanmanual')));
+      type('i-scanmanual', '8991234500031'); // Creatine Monohydrate (Pleburan)
+      click(btn('GUNAKAN'));
+      step('barcode dikenali → modal restock produknya', await waitFor(() => !!document.getElementById('i-restockqty') && has('Creatine Monohydrate')));
+      click(btn('Batal'));
+      step('modal restock ditutup', await waitFor(() => !document.getElementById('i-restockqty')));
+
+      // supplier: buat PO baru lalu tandai lunas
+      click(btn('Pembelian'));
+      step('layar supplier terbuka', await waitFor(() => has('Total Hutang ke Supplier')));
+      click(btn('+ Buat Purchase Order'));
+      step('form PO terbuka', await waitFor(() => !!document.getElementById('i-poname')));
+      const supNm = 'Supplier E2E ' + String(Date.now()).slice(-5);
+      type('i-poname', supNm); type('i-poamount', '1500000');
+      const podue = document.getElementById('i-podue'); podue.value = new Date(Date.now() + 7*864e5).toISOString().slice(0,10); podue.dispatchEvent(new Event('input', {bubbles:true}));
+      click(btn('SIMPAN PO'));
+      step('PO tersimpan ke DB', await waitFor(() => has(supNm) && has('Purchase Order dicatat')));
+      const lunasiOf = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Lunasi');
+      const nLunasi = lunasiOf().length;
+      click(lunasiOf()[lunasiOf().length - 1]); // PO terbaru = paling bawah
+      step('hutang supplier ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOf().length === nLunasi - 1));
+
+      // promo: tambah lalu hapus
+      click(btn('Promo & Bundle'));
+      step('layar promo terbuka (data DB)', await waitFor(() => has('Paket Pemula')));
+      click(btn('+ Buat Promo / Bundle'));
+      step('form promo terbuka', await waitFor(() => !!document.getElementById('i-prname')));
+      const prNm = 'Promo E2E ' + String(Date.now()).slice(-5);
+      type('i-prname', prNm); type('i-prvalue', '10%');
+      click(btn('SIMPAN PROMO'));
+      step('promo tersimpan ke DB', await waitFor(() => has(prNm) && has('Promo tersimpan')));
+      const delPromoBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'hapus-promo-' + prNm);
+      click(delPromoBtn());
+      step('promo terhapus dari DB', await waitFor(() => has('dihapus') && !delPromoBtn()));
+
+      // tambah produk (admin) — form fungsional, tersimpan ke DB
+      click(btn('Produk & Harga'));
+      step('layar produk terbuka', await waitFor(() => has('Margin') && btn('+ Tambah Produk')));
+      click(btn('+ Tambah Produk'));
+      step('form tambah produk terbuka', await waitFor(() => !!document.getElementById('i-pname') && !!document.getElementById('i-pbranch')));
+      const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
+      type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
+      step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));
+      // scan dari form produk: form disembunyikan → modal scan → kode terdeteksi →
+      // kembali ke form dengan barcode terisi & isian lain masih utuh
+      const scanBtnInForm = [...appEl().querySelectorAll('button')].find(b => b.closest('div')?.querySelector('#i-pbarcode'));
+      click(scanBtnInForm);
+      step('scan dibuka, form produk minggir', await waitFor(() => !!document.getElementById('i-scanmanual') && !document.getElementById('i-pname')));
+      type('i-scanmanual', '1234567890123');
+      click(btn('GUNAKAN'));
+      step('kembali ke form + barcode terisi', await waitFor(() => document.getElementById('i-pbarcode')?.value === '1234567890123' && document.getElementById('i-pname')?.value === pnm));
+      click(btn('SIMPAN PRODUK'));
+      step('produk baru tersimpan ke DB', await waitFor(() => has(pnm) && has('ditambahkan')));
 
       // Bagian kasir dikosongkan untuk tim kasir → admin "Buka Kasir" menampilkan
       // layar yang dirender modul kasir.js (placeholder starter), bukan POS penuh.

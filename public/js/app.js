@@ -3,16 +3,8 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], dash: {}, byUser: {}, memberItems: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
-
-// promo masih statis di FE — layarnya display-only di desain, belum ada aksi backend
-const PROMOS = [
-  { name:'Paket Pemula', desc:'Whey 2lb + Shaker Bottle', type:'Bundle', value:'Hemat Rp40.000', color:'var(--gold)' },
-  { name:'Diskon Creatine', desc:'Semua varian Creatine', type:'Diskon', value:'15%', color:'var(--ok)' },
-  { name:'Bundle Recovery', desc:'BCAA + L-Glutamine', type:'Bundle', value:'Hemat Rp55.000', color:'var(--gold)' },
-  { name:'Flash Sale Vitamin', desc:'Vitamin C & Multivitamin', type:'Diskon', value:'Rp10.000', color:'var(--ok)' },
-];
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 async function api(path, method, body){
@@ -37,8 +29,12 @@ async function api(path, method, body){
 async function loadAll(){
   const [boot, dash] = await Promise.all([api('/api/bootstrap'), api('/api/dashboard')]);
   Object.assign(DB, boot, { dash });
-  DB.byUser = {}; DB.memberItems = {};        // data berubah setelah tulis → buang cache per-anggota
-  if(USER && USER.role === 'admin') await loadByUser(S.uPeriod);
+  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; // data berubah setelah tulis → buang cache
+  if(USER && USER.role === 'admin'){
+    await loadByUser(S.uPeriod);
+    if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
+    else if(S.period === 'Tahunan') await loadYearly(S.selYear);
+  }
 }
 // penjualan per anggota: 1 periode, on-demand, di-cache per periode (khusus admin; BE menolak kasir)
 async function loadByUser(period){
@@ -51,6 +47,26 @@ async function changeUPeriod(p){
   try { await loadByUser(p); render(); } catch(e){ flash(e.message); }
 }
 
+// tren omset per tahun (Bulanan = tahun berjalan, Tahunan = tahun pilihan) — hanya
+// tahun yang sedang dilihat yang di-query, bukan semua tahun sekaligus
+async function loadYearly(year){
+  if(DB.yearly[year]) return;
+  const r = await api('/api/dashboard/yearly?year=' + year);
+  DB.yearly[year] = r;
+}
+async function changePeriod(p){
+  setState({ period:p });
+  try {
+    if(p === 'Bulanan') await loadYearly(new Date().getFullYear());
+    else if(p === 'Tahunan') await loadYearly(S.selYear);
+    render();
+  } catch(e){ flash(e.message); }
+}
+async function changeSelYear(y){
+  setState({ selYear:y });
+  try { await loadYearly(y); render(); } catch(e){ flash(e.message); }
+}
+
 /* ================= state ================= */
 let S = {
   screen: 'boot', role: null, who: '', branch: 'Pleburan', // 'boot' = latar kosong selama cek sesi
@@ -61,8 +77,15 @@ let S = {
   pf: 'Semua', pq: '',
   stokCat: 'Semua', userRole: 'Semua',
   scan: false, userForm: false, prodForm: false,
-  period: 'Harian', uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
-  uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan',
+  period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
+  uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
+  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'', pBranch:'', // form tambah produk (admin)
+  poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
+  promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
+  restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
+  scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
+  scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
+  uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
   // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
@@ -150,6 +173,25 @@ async function markPaid(id){
   catch(e) { flash(e.message); }
 }
 
+async function saveProduct(){
+  if(!S.pName.trim()){ flash('Isi nama produk dulu'); return; }
+  const harga = parseInt(S.pHarga)||0;
+  if(!harga){ flash('Isi harga jual dulu'); return; }
+  if(!S.pBranch){ flash('Pilih cabang dulu'); return; }
+  const nama = S.pName.trim();
+  try {
+    await api('/api/products', 'POST', {
+      name: nama, varian: S.pVar.trim() || '-', harga,
+      modal: parseInt(S.pModal)||0, stok: parseInt(S.pStok)||0,
+      kategori: S.pKat, branch: S.pBranch,
+      barcode: S.pBarcode.trim() || null, exp: S.pExp || null,
+    });
+    setState({ prodForm:false });
+    await loadAll();
+    flash('Produk "'+nama+'" ditambahkan');
+  } catch(e) { flash(e.message); }
+}
+
 async function saveBranch(){
   const name = (S.newBranch||'').trim();
   if(!name){ flash('Isi nama cabang terlebih dahulu'); return; }
@@ -194,12 +236,149 @@ async function openMemberDetail(uname){
 }
 
 async function saveUser(){
-  if(!S.uName.trim() || !S.uUname.trim() || !S.uPass){ flash('Lengkapi nama, username, dan password'); return; }
+  const edit = S.editUserId !== null;
+  if(!S.uName.trim() || !S.uUname.trim() || (!edit && !S.uPass)){ flash('Lengkapi nama, username, dan password'); return; }
+  const body = { name:S.uName.trim(), username:S.uUname.trim(), password:S.uPass || null, role:S.uRole, branch:S.uCabang };
   try {
-    await api('/api/users', 'POST', { name:S.uName.trim(), username:S.uUname.trim(), password:S.uPass, role:S.uRole, branch:S.uCabang });
+    if(edit) await api('/api/users/'+S.editUserId, 'PATCH', body);
+    else await api('/api/users', 'POST', body);
     Object.assign(S, { userForm:false });
     await loadAll();
-    flash('User baru tersimpan');
+    flash(edit ? 'Perubahan user tersimpan' : 'User baru tersimpan');
+  } catch(e) { flash(e.message); }
+}
+
+async function saveSupplier(){
+  if(!S.poName.trim()){ flash('Isi nama supplier dulu'); return; }
+  const amount = parseInt(S.poAmount)||0;
+  if(!amount){ flash('Isi nominal hutang dulu'); return; }
+  if(!S.poDue){ flash('Isi tanggal jatuh tempo dulu'); return; }
+  try {
+    await api('/api/suppliers', 'POST', { name:S.poName.trim(), amount, due:S.poDue });
+    Object.assign(S, { poForm:false });
+    await loadAll();
+    flash('Purchase Order dicatat');
+  } catch(e) { flash(e.message); }
+}
+async function paySupplier(s){
+  try { await api('/api/suppliers/'+s.id+'/pay', 'POST', {}); await loadAll(); flash('Hutang '+s.name+' ditandai lunas'); }
+  catch(e) { flash(e.message); }
+}
+
+async function savePromo(){
+  if(!S.prName.trim()){ flash('Isi nama promo dulu'); return; }
+  if(!S.prValue.trim()){ flash('Isi nilai promo (mis. 15% / Hemat Rp40.000)'); return; }
+  try {
+    await api('/api/promos', 'POST', { name:S.prName.trim(), desc:S.prDesc.trim(), type:S.prType, value:S.prValue.trim() });
+    Object.assign(S, { promoForm:false });
+    await loadAll();
+    flash('Promo tersimpan');
+  } catch(e) { flash(e.message); }
+}
+async function deletePromo(p){
+  try { await api('/api/promos/'+p.id, 'DELETE'); await loadAll(); flash('Promo "'+p.name+'" dihapus'); }
+  catch(e) { flash(e.message); }
+}
+
+/* ---- scan barcode (EAN-13 dsb.) via kamera ----
+   BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
+   Chrome/Edge desktop Windows/Mac/Linux, walau versi terbaru) → fallback ZXing
+   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau native tak ada. */
+let scanStream = null, scanTimer = null, scanDetector = null, zxingReader = null;
+let lastScanCode = '', lastScanAt = 0;
+
+async function startScan(target){
+  // dari form tambah produk: sembunyikan formnya dulu supaya modal scan terlihat;
+  // stopScan() mengembalikannya (isian form tetap utuh di state)
+  setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'', prodForm: target==='pbarcode' ? false : S.prodForm });
+  const hasNative = 'BarcodeDetector' in window;
+  const hasZxing = 'ZXing' in window;
+  if(!hasNative && !hasZxing){
+    setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
+    return;
+  }
+  if(hasNative) scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
+  else zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
+  try {
+    await openScanDevice(S.scanDeviceId); // deviceId tersimpan dari sesi sebelumnya (mis. kamera DroidCam) dicoba lagi duluan
+    // label kamera baru kebaca browser SETELAH izin diberikan — makanya enumerate di sini, bukan sebelum getUserMedia
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    setState({ scanDevices: devices });
+  } catch(e){
+    setState({ scanMsg:'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
+  }
+}
+async function openScanDevice(deviceId){
+  clearInterval(scanTimer); scanTimer = null;
+  if(scanStream) scanStream.getTracks().forEach(t => t.stop());
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId:{ exact:deviceId } } : { facingMode:'environment' },
+    });
+  } catch(e){
+    // deviceId tersimpan sudah tak valid (kamera dicabut/DroidCam mati) → jatuh ke kamera default
+    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+  }
+  setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
+  render(); // pasang stream ke <video> (dilakukan di akhir render)
+  scanTimer = setInterval(scanTick, 280);
+}
+async function changeScanDevice(deviceId){
+  try { await openScanDevice(deviceId); }
+  catch(e){ setState({ scanMsg:'Gagal ganti kamera — coba pilih lagi.' }); }
+}
+let scanBusy = false;
+async function scanTick(){
+  const v = document.getElementById('scan-video');
+  if(!v || v.readyState < 2 || scanBusy) return;
+  scanBusy = true;
+  try {
+    if(scanDetector){
+      const codes = await scanDetector.detect(v);
+      if(codes.length) handleScanResult(codes[0].rawValue);
+    } else if(zxingReader){
+      // decode 1 frame; ZXing lempar exception kalau belum ketemu kode di frame ini (wajar, coba lagi tick berikutnya)
+      const result = await zxingReader.decodeFromVideoElement('scan-video');
+      if(result) handleScanResult(result.getText());
+    }
+  } catch(e){ /* frame gagal dideteksi — coba lagi tick berikutnya */ }
+  finally { scanBusy = false; }
+}
+function handleScanResult(code){
+  code = String(code||'').trim();
+  if(!code) return;
+  const now = Date.now();
+  if(code === lastScanCode && now - lastScanAt < 2500) return; // jangan spam kode yang sama
+  lastScanCode = code; lastScanAt = now;
+
+  if(S.scanTarget === 'pbarcode'){ // dari form tambah produk → isi kolom barcode
+    stopScan();
+    setState({ pBarcode: code });
+    flash('Barcode terbaca: '+code);
+    return;
+  }
+  // dari layar stok → cari produknya, buka modal tambah stok
+  const p = DB.products.find(x => x.barcode === code);
+  if(!p){ flash('Barcode '+code+' tidak cocok dengan produk mana pun'); return; }
+  stopScan();
+  setState({ restockId:p.id, restockQty:'' });
+  flash(p.name+' ditemukan — masukkan jumlah stok');
+}
+function stopScan(){
+  clearInterval(scanTimer); scanTimer = null;
+  if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
+  // kembali ke form tambah produk bila scan dibuka dari sana (dibatalkan ataupun sukses)
+  setState({ scan:false, prodForm: S.scanTarget==='pbarcode' ? true : S.prodForm });
+}
+
+async function saveRestock(){
+  const qty = parseInt(S.restockQty)||0;
+  if(!qty){ flash('Isi jumlah stok yang ditambahkan'); return; }
+  try {
+    await api('/api/products/'+S.restockId+'/restock', 'POST', { qty });
+    Object.assign(S, { restockId:null });
+    await loadAll();
+    flash('Stok ditambah '+qty+' pcs');
   } catch(e) { flash(e.message); }
 }
 async function toggleUser(u){
@@ -237,6 +416,20 @@ function getDash(b){
     return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), trx:sum('trx'), week, top, semua:true };
   }
   return EMPTY_DASH;
+}
+const EMPTY_YEARLY = { months:[], year:0 };
+function getYearly(b, year){
+  const y = DB.yearly[year];
+  if(!y) return null; // belum termuat (loadYearly sedang jalan / belum dipicu)
+  if(y[b]) return y[b];
+  if(b==='Semua'){
+    const list = Object.values(y);
+    if(!list.length) return EMPTY_YEARLY;
+    const maxMonths = list.reduce((a,d)=>d.months.length>a.length?d.months:a, []);
+    const months = maxMonths.map((m,i)=>({ label:m.label, v: +list.reduce((s,d)=>s+((d.months[i]||{}).v||0),0).toFixed(2) }));
+    return { months, year: list.reduce((s,d)=>s+d.year,0) };
+  }
+  return EMPTY_YEARLY;
 }
 
 /* ================= view model (ported renderVals) ================= */
@@ -327,7 +520,8 @@ function renderVals(){
   const cats=['Semua', ...DB.categories.map(c=>c.name)];
   const stokRows = DB.products.filter(p=>(branch==='Semua'||p.cabang===branch) && (S.stokCat==='Semua'||p.kategori===S.stokCat)).map(p=>{
     let st,c,bg; if(p.stok<=0){st='Habis';c='var(--danger)';bg='var(--dangertint)';} else if(p.stok<=5){st='Menipis';c='var(--warn)';bg='var(--warntint)';} else {st='Aman';c='var(--ok)';bg='var(--oktint)';}
-    return { name:p.name, varian:p.varian, kategori:p.kategori, stokText:p.stok+' pcs', status:st, color:c, bg };
+    return { name:p.name, varian:p.varian, kategori:p.kategori, stokText:p.stok+' pcs', status:st, color:c, bg,
+      onRestock:()=>setState({restockId:p.id, restockQty:''}) };
   });
   const catChips = cats.map(c=>({ label:c, ...chip(S.stokCat===c), onClick:()=>setState({stokCat:c}) }));
 
@@ -336,7 +530,8 @@ function renderVals(){
     roleBg:u.role==='Admin'?'var(--goldtint2)':'var(--infotint)', cabang:u.cabang,
     statusText:u.active?'Aktif':'Nonaktif', statusColor:u.active?'var(--ok)':'var(--dim)',
     toggleText:u.active?'Nonaktifkan':'Aktifkan',
-    onEdit:()=>flash('Edit '+u.name), onToggle:()=>toggleUser(u) }));
+    onEdit:()=>setState({userForm:true, editUserId:u.id, uName:u.name, uUname:u.uname, uPass:'', uPassShow:false, uRole:u.role, uCabang:u.cabang}),
+    onToggle:()=>toggleUser(u) }));
   const uRoleChips = ['Semua','Admin','Kasir'].map(r=>({ label:r, ...chip(S.userRole===r), onClick:()=>setState({userRole:r}) }));
 
   const produkRows = DB.products.filter(p=>branch==='Semua'||p.cabang===branch).map(p=>{
@@ -353,18 +548,30 @@ function renderVals(){
 
   const dtot = D.today || 1;
   const ratios={tunai:D.tunai/dtot, market:D.market/dtot, tempo:D.tempo/dtot};
+  const curYear = new Date().getFullYear();
+  const yCurrent = getYearly(branch, curYear);   // Bulanan = tahun berjalan
+  const ySel = getYearly(branch, S.selYear);     // Tahunan = tahun pilihan (bisa beda dari curYear)
   const lapMap={
     Harian:{ total:D.today, bars:D.week.map(w=>({label:w.label, v:w.v})) },
     Mingguan:{ total:Math.round(D.month/4), bars:[{label:'Mg 1',v:D.month/4*0.9/1e6},{label:'Mg 2',v:D.month/4*1.05/1e6},{label:'Mg 3',v:D.month/4*0.95/1e6},{label:'Mg 4',v:D.month/4*1.1/1e6}] },
-    Bulanan:{ total:D.month, bars:[{label:'Jan',v:D.month*0.82/1e6},{label:'Feb',v:D.month*0.88/1e6},{label:'Mar',v:D.month*0.95/1e6},{label:'Apr',v:D.month*0.9/1e6},{label:'Mei',v:D.month*1.02/1e6},{label:'Jun',v:D.month/1e6}] },
+    Bulanan:{ total:D.month, bars:(yCurrent?.months||[]).slice(-6) }, // 6 bulan terakhir (data asli)
+    Tahunan:{ total:(ySel?.year)||0, bars:ySel?.months||[] },         // tahun pilihan, data asli
   };
-  const lapSel=lapMap[S.period]; const lmax=Math.max(...lapSel.bars.map(b=>b.v), 0.1);
+  const lapSel=lapMap[S.period];
+  // loading = tab Bulanan/Tahunan tapi cache-nya belum termuat (getYearly balikin null)
+  const lapLoading = (S.period==='Bulanan' ? yCurrent : S.period==='Tahunan' ? ySel : {}) === null;
+  const lmax=Math.max(...(lapSel.bars.length?lapSel.bars.map(b=>b.v):[0]), 0.1);
   const lapBars=lapSel.bars.map((b,i)=>({label:b.label, valText:b.v.toFixed(1), h:(b.v/lmax*100).toFixed(0)+'%',
     fill:i===lapSel.bars.length-1?'linear-gradient(180deg,var(--goldhi),var(--gold))':'var(--barempty)', valColor:i===lapSel.bars.length-1?'var(--gold)':'var(--muted)'}));
   const lapTotal=lapSel.total;
   const lapMethods=[{label:'Tunai',amt:lapTotal*ratios.tunai,color:'var(--ok)'},{label:'Marketplace',amt:lapTotal*ratios.market,color:'var(--info)'},{label:'Tempo',amt:lapTotal*ratios.tempo,color:'var(--warn)'}]
     .map(m=>({label:m.label, amountText:rp(m.amt), w:(m.amt/(lapTotal||1)*100).toFixed(0)+'%', color:m.color}));
-  const periodChips=['Harian','Mingguan','Bulanan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>setState({period:p})}));
+  const periodChips=['Harian','Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>changePeriod(p)}));
+  // panah pilih tahun (tampil hanya saat tab Tahunan) — dibatasi 5 tahun ke belakang;
+  // ponytail: batas tetap, bukan query MIN(created_at) — cukup untuk skala toko ini
+  const yearMin = curYear-5, yearMax = curYear;
+  const onPrevYear = S.selYear>yearMin ? ()=>changeSelYear(S.selYear-1) : null;
+  const onNextYear = S.selYear<yearMax ? ()=>changeSelYear(S.selYear+1) : null;
   const abList = allBranches();
   const bcMax = Math.max(...abList.map(b=>getDash(b).month), 1);
   const branchCompare = abList.map(b=>{ const d=getDash(b); const on = branch===b || branch==='Semua';
@@ -406,9 +613,16 @@ function renderVals(){
 
   const supplierTotal=DB.suppliers.filter(s=>!s.paid).reduce((a,s)=>a+s.amount,0);
   const supplierRows=DB.suppliers.map(s=>{ const dl=daysLeft(s.due); const over=dl<0 && !s.paid;
-    return { name:s.name, amountText:rp(s.amount), dueText:fmtDate(s.due),
+    return { name:s.name, amountText:rp(s.amount), dueText:fmtDate(s.due), notPaid:!s.paid,
       status: s.paid?'Lunas':(over?'Terlambat':'Belum Lunas'), color: s.paid?'var(--ok)':(over?'var(--danger)':'var(--warn)'),
-      bg: s.paid?'var(--oktint)':(over?'var(--dangertint)':'var(--warntint)') }; });
+      bg: s.paid?'var(--oktint)':(over?'var(--dangertint)':'var(--warntint)'),
+      onPay:()=>paySupplier(s) }; });
+
+  const promoRows = DB.promos.map(p => ({ ...p,
+    color: p.type==='Bundle' ? 'var(--gold)' : 'var(--ok)',
+    onDelete:()=>deletePromo(p) }));
+
+  const restockProd = S.restockId !== null ? DB.products.find(p=>p.id===S.restockId) : null;
 
   return {
     scrLogin: S.screen==='login',
@@ -507,12 +721,15 @@ function renderVals(){
     onNewBranch:(e)=>setState({newBranch:e.target.value}),
     saveBranch:()=>saveBranch(),
 
-    scan:S.scan, closeScan:()=>setState({scan:false}),
-    doScan:()=>{ setState({scan:false}); flash('Barcode terbaca: Whey Isolate 2lb'); },
+    scan:S.scan, closeScan:()=>stopScan(),
+    scanMsg:S.scanMsg,
+    scanDevices:S.scanDevices, scanDeviceId:S.scanDeviceId, onScanDevice:(e)=>changeScanDevice(e.target.value),
+    scanManual:S.scanManual, onScanManual:(e)=>setState({scanManual:e.target.value}),
+    useManual:()=>handleScanResult(S.scanManual),
 
     piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0,
     tempoRows, tempoEmpty:tempoRows.length===0,
-    stokRows, catChips, openScanStok:()=>setState({scan:true}), stokEmpty:stokRows.length===0,
+    stokRows, catChips, openScanStok:()=>startScan('stok'), stokEmpty:stokRows.length===0,
     catForm:S.catForm, newCat:S.newCat,
     openCatForm:()=>setState({catForm:true, newCat:''}),
     closeCatForm:()=>setState({catForm:false}),
@@ -520,7 +737,9 @@ function renderVals(){
     saveCategory:()=>saveCategory(),
     catRows: DB.categories.map(c=>({ id:c.id, name:c.name, onDelete:()=>deleteCategory(c) })),
     userRows, uRoleChips, userForm:S.userForm,
-    openUserForm:()=>setState({userForm:true, uName:'', uUname:'', uPass:'', uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
+    openUserForm:()=>setState({userForm:true, editUserId:null, uName:'', uUname:'', uPass:'', uPassShow:false, uRole:'Kasir', uCabang: branch==='Semua' ? (allBranches()[0]||'Pleburan') : branch}),
+    userFormIsEdit: S.editUserId !== null,
+    uPassShow:S.uPassShow, toggleUPass:()=>setState({uPassShow:!S.uPassShow}),
     closeUserForm:()=>setState({userForm:false}),
     uName:S.uName, onUName:(e)=>setState({uName:e.target.value}),
     uUname:S.uUname, onUUname:(e)=>setState({uUname:e.target.value}),
@@ -529,9 +748,25 @@ function renderVals(){
     uCabangTiles: allBranches().map(b=>({ label:b, on:S.uCabang===b, onClick:()=>setState({uCabang:b}) })),
     saveUser:()=>saveUser(),
     produkRows, prodForm:S.prodForm,
-    openProdForm:()=>setState({prodForm:true}), closeProdForm:()=>setState({prodForm:false}),
-    saveProd:()=>{ setState({prodForm:false}); flash('Produk tersimpan'); },
+    kCatOptions: DB.categories.map(c=>c.name),
+    prodBranchOptions: allBranches(),
+    openProdForm:()=>setState({prodForm:true, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
+      pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'',
+      pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
+    closeProdForm:()=>setState({prodForm:false}),
+    pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
+    pVar:S.pVar, onPVar:(e)=>setState({pVar:e.target.value}),
+    pKat:S.pKat, onPKat:(e)=>setState({pKat:e.target.value}),
+    pHargaText: S.pHarga ? rp(parseInt(S.pHarga)) : '', onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
+    pModalText: S.pModal ? rp(parseInt(S.pModal)) : '', onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
+    pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
+    pBarcode:S.pBarcode, onPBarcode:(e)=>setState({pBarcode:e.target.value}),
+    pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
+    pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
+    openScan:()=>startScan('pbarcode'), // tombol scan di form produk → isi kolom barcode
+    saveProd:()=>saveProduct(),
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
+    lapLoading, selYearText:String(S.selYear), onPrevYear, onNextYear,
     uPeriod:S.uPeriod,
     uPeriodChips: ['Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.uPeriod===p), onClick:()=>changeUPeriod(p)})),
     memberRows, memberLoading: mLoading,
@@ -548,8 +783,31 @@ function renderVals(){
     memberTotalText: rp(memberTotal), memberTrxText: memberTrx+' transaksi',
     memberFooterLabel: mSel.size ? mSel.size+' pegawai terpilih' : mRanked.length+' pegawai',
     memberCountText: mRanked.length+' pegawai',
-    supplierRows, supplierTotalText:rp(supplierTotal), newPO:()=>flash('Form Purchase Order dibuka'),
-    promoRows:PROMOS, newPromo:()=>flash('Buat promo / bundle baru'),
+    supplierRows, supplierTotalText:rp(supplierTotal),
+    poForm:S.poForm,
+    newPO:()=>setState({poForm:true, poName:'', poAmount:'', poDue:''}),
+    closePoForm:()=>setState({poForm:false}),
+    poName:S.poName, onPoName:(e)=>setState({poName:e.target.value}),
+    poAmountText: S.poAmount ? rp(parseInt(S.poAmount)) : '', onPoAmount:(e)=>setState({poAmount:(e.target.value||'').replace(/\D/g,'')}),
+    poDue:S.poDue, onPoDue:(e)=>setState({poDue:e.target.value}),
+    saveSupplier:()=>saveSupplier(),
+
+    promoRows,
+    promoForm:S.promoForm,
+    newPromo:()=>setState({promoForm:true, prName:'', prDesc:'', prType:'Bundle', prValue:''}),
+    closePromoForm:()=>setState({promoForm:false}),
+    prName:S.prName, onPrName:(e)=>setState({prName:e.target.value}),
+    prDesc:S.prDesc, onPrDesc:(e)=>setState({prDesc:e.target.value}),
+    prValue:S.prValue, onPrValue:(e)=>setState({prValue:e.target.value}),
+    prTypeTiles: ['Bundle','Diskon'].map(t=>({ label:t, on:S.prType===t, onClick:()=>setState({prType:t}) })),
+    savePromo:()=>savePromo(),
+
+    restockOpen: restockProd !== null,
+    restockName: restockProd ? restockProd.name+' · '+restockProd.varian : '',
+    restockStokText: restockProd ? restockProd.stok+' pcs' : '',
+    restockQty:S.restockQty, onRestockQty:(e)=>setState({restockQty:(e.target.value||'').replace(/\D/g,'')}),
+    closeRestock:()=>setState({restockId:null}),
+    saveRestock:()=>saveRestock(),
 
     toast:S.toast,
   };
@@ -817,7 +1075,7 @@ function secStokHtml(V){
           <div style="display:grid;grid-template-columns:2.4fr 1.3fr 1fr 1fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span><span style="font-weight:600;">${esc(p.name)}</span> <span style="color:var(--muted);">· ${esc(p.varian)}</span></span>
             <span style="color:var(--muted);">${p.kategori}</span>
-            <span style="font-family:'Saira',sans-serif;font-weight:700;">${p.stokText}</span>
+            <span style="display:flex;align-items:center;gap:8px;"><span style="font-family:'Saira',sans-serif;font-weight:700;">${p.stokText}</span><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="height:26px;padding:0 9px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></span>
             <span style="text-align:right;">${badge(p.color,p.bg,p.status)}</span>
           </div>`).join('')}
       </div>` : `
@@ -831,6 +1089,7 @@ function secStokHtml(V){
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${p.stokText}</div>
               <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;color:${p.color};background:${p.bg};display:inline-block;margin-top:3px;">${p.status}</span>
+              <div><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="margin-top:6px;height:26px;padding:0 10px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></div>
             </div>
           </div>`).join('')}
       </div>`}
@@ -886,12 +1145,21 @@ function secUsersHtml(V){
 
 function secLaporanHtml(V){
   return `<div style="${V.popScreen}">
-    <div style="display:flex;gap:8px;margin-bottom:18px;">
+    <div style="display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap;">
       ${V.periodChips.map(c => `<button ${A(c.onClick)} style="height:42px;padding:0 22px;border-radius:11px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;border:1px solid ${c.bd};background:${c.bg};color:${c.cl};">${c.label}</button>`).join('')}
+      ${V.period==='Tahunan' ? `
+        <div style="display:flex;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:11px;height:42px;padding:0 4px;">
+          <button ${A(V.onPrevYear)} title="tahun-sebelumnya" style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:${V.onPrevYear?'pointer':'default'};color:${V.onPrevYear?'var(--gold)':'var(--dim2)'};font-size:17px;display:flex;align-items:center;justify-content:center;font-family:'Hanken Grotesk',sans-serif;">‹</button>
+          <span style="min-width:48px;text-align:center;font-family:'Saira',sans-serif;font-weight:700;font-size:13.5px;">${V.selYearText}</span>
+          <button ${A(V.onNextYear)} title="tahun-berikutnya" style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:${V.onNextYear?'pointer':'default'};color:${V.onNextYear?'var(--gold)':'var(--dim2)'};font-size:17px;display:flex;align-items:center;justify-content:center;font-family:'Hanken Grotesk',sans-serif;">›</button>
+        </div>` : ''}
     </div>
     <div style="display:grid;grid-template-columns:${V.lapTopCols};gap:16px;margin-bottom:16px;">
       <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:18px;padding:20px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;">Tren Omset</span><span style="font-size:12px;color:var(--muted);">juta Rupiah</span></div>
+        ${V.lapLoading ? `
+          <div style="height:170px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;">Memuat data…</div>
+        ` : `
         <div style="display:flex;align-items:flex-end;justify-content:space-between;height:170px;gap:10px;">
           ${V.lapBars.map(b => `
             <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end;">
@@ -899,7 +1167,7 @@ function secLaporanHtml(V){
               <div style="width:100%;border-radius:7px 7px 3px 3px;background:${b.fill};height:${b.h};min-height:5px;"></div>
               <span style="font-size:10.5px;color:var(--muted);">${b.label}</span>
             </div>`).join('')}
-        </div>
+        </div>`}
       </div>
       <div style="border-radius:18px;padding:20px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);display:flex;flex-direction:column;justify-content:center;">
         <div style="font-size:13px;color:var(--goldsoft);">Total Omset (${V.period})</div>
@@ -944,7 +1212,7 @@ function secLaporanHtml(V){
           </button>
           ${V.memberDropdown ? `
             <div ${A(V.closeMemberDd)} style="position:fixed;inset:0;z-index:44;"></div>
-            <div style="position:absolute;top:48px;left:0;right:0;z-index:45;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
+            <div style="position:relative;z-index:45;margin-top:8px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -12px var(--shadowc);${V.pop('memberDd')}">
               <div style="padding:10px;border-bottom:1px solid var(--divider);position:relative;display:flex;align-items:center;">
                 ${svgSearchIc(15,22)}
                 <input id="i-membersearch" value="${esc(V.memberSearch)}" ${I(V.onMemberSearch)} placeholder="Cari nama pegawai…" style="width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;padding:0 12px 0 34px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
@@ -1044,11 +1312,14 @@ function secSupplierHtml(V){
           <span>Supplier</span><span>Nominal</span><span>Jatuh Tempo</span><span style="text-align:right;">Status</span>
         </div>
         ${V.supplierRows.map(s => `
-          <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 1fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+          <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr 1.4fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span style="font-weight:600;">${esc(s.name)}</span>
             <span style="font-family:'Saira',sans-serif;font-weight:700;">${s.amountText}</span>
             <span style="color:var(--muted);">${s.dueText}</span>
-            <span style="text-align:right;">${badge(s.color,s.bg,s.status)}</span>
+            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+              ${badge(s.color,s.bg,s.status)}
+              ${s.notPaid ? `<button ${A(s.onPay)} style="height:32px;padding:0 12px;border-radius:9px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+            </span>
           </div>`).join('')}
       </div>` : `
       <div style="display:flex;flex-direction:column;gap:9px;">
@@ -1061,6 +1332,7 @@ function secSupplierHtml(V){
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${s.amountText}</div>
               <span style="font-size:10px;font-weight:700;color:${s.color};background:${s.bg};padding:2px 7px;border-radius:6px;display:inline-block;margin-top:3px;">${s.status}</span>
+              ${s.notPaid ? `<div><button ${A(s.onPay)} style="margin-top:7px;height:30px;padding:0 12px;border-radius:8px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button></div>` : ''}
             </div>
           </div>`).join('')}
       </div>`}
@@ -1077,7 +1349,8 @@ function secPromoHtml(V){
         <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:15px;padding:18px;display:flex;align-items:center;gap:15px;">
           <div style="width:52px;height:52px;flex:none;border-radius:14px;background:var(--goldtint);display:flex;align-items:center;justify-content:center;">${V.giftIcon}</div>
           <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:600;">${esc(p.name)}</div><div style="font-size:12px;color:var(--muted);margin-top:3px;">${esc(p.desc)}</div></div>
-          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);">${p.type}</div><div style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${p.color};">${p.value}</div></div>
+          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);">${esc(p.type)}</div><div style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${p.color};">${esc(p.value)}</div></div>
+          <button ${A(p.onDelete)} title="hapus-promo-${esc(p.name)}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
         </div>`).join('')}
     </div>
   </div>`;
@@ -1252,30 +1525,47 @@ function bellHtml(V){
 function scanHtml(V){
   return `
   <div ${A(V.closeScan)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.pop('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider);">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.popModal('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+    <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--divider);">
       <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
-      <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;">×</button>
-    </div>
-    <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));">
-      <div style="position:relative;width:230px;height:230px;border-radius:20px;overflow:hidden;border:2px solid var(--goldborder);">
-        <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,#222 0 3px,var(--panel) 3px 9px);opacity:.5;"></div>
-        <i style="position:absolute;left:5%;right:5%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:ssScan 1.8s ease-in-out infinite alternate;"></i>
-        <span style="position:absolute;top:8px;left:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:5px 0 0 0;"></span>
-        <span style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 5px 0 0;"></span>
-        <span style="position:absolute;bottom:8px;left:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:0 0 0 5px;"></span>
-        <span style="position:absolute;bottom:8px;right:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 0 5px 0;"></span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        ${V.scanDevices.length > 1 ? `
+          <select ${I(V.onScanDevice)} title="pilih kamera (mis. DroidCam)" style="height:34px;max-width:150px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:11px;padding:0 8px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+            ${V.scanDevices.map((d,i) => `<option value="${esc(d.deviceId)}"${d.deviceId===V.scanDeviceId?' selected':''}>${esc(d.label || ('Kamera '+(i+1)))}</option>`).join('')}
+          </select>
+        ` : ''}
+        <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;flex:none;">×</button>
       </div>
-      <div style="position:absolute;bottom:18px;left:0;right:0;text-align:center;font-size:13px;color:var(--muted);">Arahkan kamera ke barcode produk</div>
     </div>
-    <div style="padding:18px;"><button ${A(V.doScan)} style="width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;letter-spacing:.04em;cursor:pointer;">SIMULASI: BARCODE TERBACA</button></div>
+    <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));overflow:hidden;">
+      <video id="scan-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
+      ${V.scanMsg ? `
+        <div style="position:relative;z-index:2;max-width:320px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;font-size:13px;color:var(--text2);line-height:1.55;">${esc(V.scanMsg)}</div>
+      ` : `
+        <div style="position:relative;z-index:2;width:230px;height:230px;border-radius:20px;border:2px solid var(--goldborder);">
+          <i style="position:absolute;left:5%;right:5%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:ssScan 1.8s ease-in-out infinite alternate;"></i>
+          <span style="position:absolute;top:8px;left:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:5px 0 0 0;"></span>
+          <span style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 5px 0 0;"></span>
+          <span style="position:absolute;bottom:8px;left:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:0 0 0 5px;"></span>
+          <span style="position:absolute;bottom:8px;right:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 0 5px 0;"></span>
+        </div>
+        <div style="position:absolute;bottom:14px;left:0;right:0;z-index:2;text-align:center;font-size:13px;color:var(--text2);text-shadow:0 1px 6px rgba(0,0,0,.7);">Arahkan kamera ke barcode produk (EAN-13)</div>
+      `}
+    </div>
+    <div style="padding:14px 18px 18px;">
+      ${lbl('Atau ketik nomor barcode')}
+      <div style="display:flex;gap:8px;margin-top:7px;">
+        <input id="i-scanmanual" value="${esc(V.scanManual)}" ${I(V.onScanManual)} inputmode="numeric" placeholder="cnt. 8991234500017" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:15px;letter-spacing:.06em;padding:0 14px;outline:none;font-family:'Saira',sans-serif;font-weight:600;">
+        <button ${A(V.useManual)} style="flex:none;height:48px;padding:0 18px;border-radius:12px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">GUNAKAN</button>
+      </div>
+    </div>
   </div>`;
 }
 
 function branchFormHtml(V){
   return `
   <div ${A(V.closeBranchForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('branchForm')}">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('branchForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Tambah Cabang</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Data penjualan mulai tercatat setelah ada transaksi.</p>
     ${lbl('Nama Cabang')}
@@ -1291,13 +1581,22 @@ function userFormHtml(V){
   const selTile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:120px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${esc(t.label)}</button>`;
   return `
   <div ${A(V.closeUserForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah User Baru</h3>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">${V.userFormIsEdit ? 'Edit User' : 'Tambah User Baru'}</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Lengkap')}<input id="i-uname-new" value="${esc(V.uName)}" ${I(V.onUName)} placeholder="Nama user" style="${inputStyle(48)}"></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">${lbl('Username')}<input id="i-uuname-new" value="${esc(V.uUname)}" ${I(V.onUUname)} placeholder="username" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Password')}<input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="password" placeholder="••••••" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl(V.userFormIsEdit ? 'Password Baru (opsional)' : 'Password')}
+          <div style="position:relative;">
+            <input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="${V.uPassShow ? 'text' : 'password'}" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}padding-right:46px;">
+            <button ${A(V.toggleUPass)} title="lihat-password" style="position:absolute;right:7px;bottom:7px;width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+              ${V.uPassShow
+                ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#D4AF37" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#D4AF37" stroke-width="1.7"></circle></svg>`
+                : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#6c6c74" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#6c6c74" stroke-width="1.7"></circle><path d="M4 4l16 16" stroke="#6c6c74" stroke-width="1.7" stroke-linecap="round"></path></svg>`}
+            </button>
+          </div>
+        </div>
       </div>
       <div>${lbl('Role')}
         <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">${V.uRoleTiles.map(selTile).join('')}</div>
@@ -1316,24 +1615,28 @@ function userFormHtml(V){
 function prodFormHtml(V){
   return `
   <div ${A(V.closeProdForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.pop('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah Produk</h3>
     <div style="display:flex;flex-direction:column;gap:14px;">
-      <div>${lbl('Nama Produk')}<input placeholder="Nama produk" style="${inputStyle(48)}"></div>
+      <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Varian')}<input placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-pkat" ${I(V.onPKat)} style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.pKat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Harga Jual')}<input placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Harga Modal')}<input placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Harga Jual')}<input id="i-pharga" value="${esc(V.pHargaText)}" ${I(V.onPHarga)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
       </div>
       <div style="font-size:12.5px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:10px 13px;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-pbranch" ${I(V.onPBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.pBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">${lbl('Barcode')}
-          <div style="display:flex;gap:8px;margin-top:6px;"><input placeholder="—" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:48px;flex:none;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(20)}</button></div>
+          <div style="display:flex;gap:8px;margin-top:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:48px;flex:none;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(20)}</button></div>
         </div>
-        <div style="flex:1;min-width:140px;">${lbl('Kedaluwarsa')}<input type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Kedaluwarsa')}<input id="i-pexp" value="${esc(V.pExp)}" ${I(V.onPExp)} type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:22px;">
@@ -1346,7 +1649,7 @@ function prodFormHtml(V){
 function catFormHtml(V){
   return `
   <div ${A(V.closeCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.pop('catForm')}">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('catForm')}">
     <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Kelola Kategori</h3>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk filter stok dan pengelompokan produk. Kategori yang masih dipakai produk tidak bisa dihapus.</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
@@ -1362,6 +1665,62 @@ function catFormHtml(V){
       <button ${A(V.saveCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">TAMBAH</button>
     </div>
     <button ${A(V.closeCatForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+  </div>`;
+}
+
+function poFormHtml(V){
+  return `
+  <div ${A(V.closePoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('poForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Buat Purchase Order</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Catat hutang pembelian ke supplier. Tandai lunas dari daftar saat sudah dibayar.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Nama Supplier')}<input id="i-poname" value="${esc(V.poName)}" ${I(V.onPoName)} placeholder="cnt. PT Nutrisi Prima" style="${inputStyle(48)}"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-poamount" value="${esc(V.poAmountText)}" ${I(V.onPoAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+        <div style="flex:1;min-width:140px;">${lbl('Jatuh Tempo')}<input id="i-podue" value="${esc(V.poDue)}" ${I(V.onPoDue)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closePoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveSupplier)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PO</button>
+    </div>
+  </div>`;
+}
+
+function promoFormHtml(V){
+  const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
+  return `
+  <div ${A(V.closePromoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('promoForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 16px;">Buat Promo / Bundle</h3>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Nama Promo')}<input id="i-prname" value="${esc(V.prName)}" ${I(V.onPrName)} placeholder="cnt. Paket Pemula" style="${inputStyle(48)}"></div>
+      <div>${lbl('Deskripsi')}<input id="i-prdesc" value="${esc(V.prDesc)}" ${I(V.onPrDesc)} placeholder="cnt. Whey 2lb + Shaker Bottle" style="${inputStyle(48)}"></div>
+      <div>${lbl('Tipe')}
+        <div style="display:flex;gap:10px;margin-top:7px;">${V.prTypeTiles.map(tile).join('')}</div>
+      </div>
+      <div>${lbl('Nilai')}<input id="i-prvalue" value="${esc(V.prValue)}" ${I(V.onPrValue)} placeholder="cnt. 15% atau Hemat Rp40.000" style="${inputStyle(48)}"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closePromoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.savePromo)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PROMO</button>
+    </div>
+  </div>`;
+}
+
+function restockHtml(V){
+  return `
+  <div ${A(V.closeRestock)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('restock')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 4px;">Tambah Stok</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 14px;">${esc(V.restockName)} · stok sekarang <b style="color:var(--text2);">${V.restockStokText}</b></p>
+    ${lbl('Jumlah Masuk')}
+    <input id="i-restockqty" value="${esc(V.restockQty)}" ${I(V.onRestockQty)} inputmode="numeric" placeholder="0" style="width:100%;height:52px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:21px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;">
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button ${A(V.closeRestock)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveRestock)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">TAMBAHKAN</button>
+    </div>
   </div>`;
 }
 
@@ -1389,6 +1748,9 @@ function html(V){
     ${V.catForm ? catFormHtml(V) : ''}
     ${V.userForm ? userFormHtml(V) : ''}
     ${V.prodForm ? prodFormHtml(V) : ''}
+    ${V.poForm ? poFormHtml(V) : ''}
+    ${V.promoForm ? promoFormHtml(V) : ''}
+    ${V.restockOpen ? restockHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
   </div>`;
 }
@@ -1404,9 +1766,11 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
+    poForm:S.poForm, promoForm:S.promoForm, restock:S.restockId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
+  V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;'; // modal tengah: keyframes menyertakan translate(-50%,-50%)
   V.popToast = prevOpen.toast ? '' : 'animation:ssToast .25s ease;';
 
   const ae = document.activeElement;
@@ -1424,6 +1788,11 @@ function render(){
   }
   lastScreen = S.screen;
   prevOpen = openNow;
+  // modal scan: innerHTML membuat <video> baru tiap render → pasang ulang stream kamera
+  if(S.scan && scanStream){
+    const v = document.getElementById('scan-video');
+    if(v && v.srcObject !== scanStream){ v.srcObject = scanStream; v.play().catch(()=>{}); }
+  }
   if(fid){
     const el = document.getElementById(fid);
     if(el){
