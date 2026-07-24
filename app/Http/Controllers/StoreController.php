@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Branch;
 use App\Models\Category;
+use App\Models\Expense;
 use App\Models\Product;
 use App\Models\Promo;
 use App\Models\Receivable;
@@ -214,6 +215,56 @@ class StoreController extends Controller
         return response()->json(['items' => $items]);
     }
 
+    public function expenses(Request $request)
+    {
+        $this->assertAdmin($request);
+        $this->catchUpRecurringExpenses();
+
+        return response()->json([
+            'expenses' => Expense::with('branch')->orderByDesc('date')->get()->map(fn ($e) => [
+                'id' => $e->id, 'category' => $e->category, 'note' => $e->note,
+                'amount' => $e->amount, 'recurring' => $e->is_recurring,
+                'dueDay' => $e->due_day, 'date' => $e->date->toDateString(),
+                'cabang' => $e->branch->name, 'paid' => $e->paid,
+            ]),
+        ]);
+    }
+
+    private function catchUpRecurringExpenses(): void
+    {
+        // Biaya rutin (mis. sewa) butuh baris baru tiap bulan tanpa cron/scheduler —
+        // begitu admin buka layar Biaya (endpoint ini dipanggil), kita cek tiap
+        // (cabang, kategori) rutin apakah sudah punya baris bulan berjalan; kalau
+        // belum, digandakan dari baris rutin terakhirnya (nominal ikut yang terbaru,
+        // jadi kalau sewa naik, baris baru otomatis pakai nominal barunya).
+        // ponytail: cuma "loncat" ke bulan ini, TIDAK mengisi bulan-bulan yang
+        // terlewat kalau aplikasi lama tak dibuka — upgrade ke backfill penuh
+        // kalau nanti dirasa perlu (skala toko ini kecil, jarang absen berbulan-bulan).
+        $today = now();
+        $templates = Expense::where('is_recurring', true)
+            ->orderByDesc('date')
+            ->get()
+            ->unique(fn ($e) => $e->branch_id.'|'.$e->category);
+
+        foreach ($templates as $tpl) {
+            if ($tpl->date->isSameMonth($today)) {
+                continue;
+            }
+
+            $day = min($tpl->due_day ?? 1, $today->daysInMonth);
+            Expense::create([
+                'branch_id' => $tpl->branch_id,
+                'category' => $tpl->category,
+                'note' => $tpl->note,
+                'amount' => $tpl->amount,
+                'is_recurring' => true,
+                'due_day' => $tpl->due_day,
+                'date' => $today->copy()->startOfMonth()->addDays($day - 1),
+                'paid' => false,
+            ]);
+        }
+    }
+
     /* ---------- writes ---------- */
 
     // ============================================================
@@ -341,6 +392,55 @@ class StoreController extends Controller
     {
         $this->assertAdmin($request);
         $promo->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeExpense(Request $request)
+    {
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'category' => ['required', Rule::in(['Sewa', 'Listrik', 'Sampah', 'Plastik', 'Lainnya'])],
+            'note' => ['nullable', 'string', 'max:150'],
+            'amount' => ['required', 'integer', 'min:1'],
+            'branch' => ['required', 'string', 'exists:branches,name'],
+            'recurring' => ['required', 'boolean'],
+            'dueDay' => [Rule::requiredIf((bool) $request->input('recurring')), 'nullable', 'integer', 'min:1', 'max:31'],
+            'date' => [Rule::requiredIf(! $request->input('recurring')), 'nullable', 'date'],
+        ]);
+
+        $recurring = $data['recurring'];
+        $today = now();
+        $date = $recurring
+            ? $today->copy()->startOfMonth()->addDays(min((int) $data['dueDay'], $today->daysInMonth) - 1)
+            : $data['date'];
+
+        Expense::create([
+            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
+            'category' => $data['category'],
+            'note' => trim($data['note'] ?? '') ?: null,
+            'amount' => $data['amount'],
+            'is_recurring' => $recurring,
+            'due_day' => $recurring ? $data['dueDay'] : null,
+            'date' => $date,
+            'paid' => ! $recurring, // rutin = tagihan yg belum dibayar; sekali-ini = sudah terjadi/lunas saat itu juga
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function payExpense(Request $request, Expense $expense)
+    {
+        $this->assertAdmin($request);
+        $expense->update(['paid' => true]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteExpense(Request $request, Expense $expense)
+    {
+        $this->assertAdmin($request);
+        $expense->delete();
 
         return response()->json(['ok' => true]);
     }
