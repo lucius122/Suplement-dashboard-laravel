@@ -501,9 +501,9 @@ function renderVals(){
       dueColor: over?'var(--danger)':'var(--warn)',
       dotBg: over?'var(--dangertint)':'var(--warntint)', dotColor: over?'var(--danger)':'var(--warn)' }; });
 
-  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', promo:'Promo', shopee:'Shopee' };
-  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', promo:'Promo & Bundle', shopee:'Integrasi Shopee' };
-  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','promo','shopee'];
+  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', promo:'Promo', biaya:'Biaya', shopee:'Shopee' };
+  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', promo:'Promo & Bundle', biaya:'Biaya Operasional', shopee:'Integrasi Shopee' };
+  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','promo','biaya','shopee'];
 
   const chip = (on)=> on ? {bd:'var(--gold)',bg:'var(--goldtint2)',cl:'var(--gold)'} : {bd:'var(--border)',bg:'var(--surface2)',cl:'var(--muted)'};
 
@@ -517,6 +517,7 @@ function renderVals(){
     {k:'users',label:'Manajemen User'},
     {k:'supplier',label:'Pembelian'},
     {k:'promo',label:'Promo & Bundle'},
+    {k:'biaya',label:'Biaya Operasional'},
     {k:'shopee',label:'Integrasi Shopee'},
   ];
   const sidebarItems = sbDef.map(d=>{ const on = S.screen===d.k;
@@ -527,7 +528,7 @@ function renderVals(){
   const refreshIcon = ic('refresh','var(--gold)',16);
   const settingsIcon = ic('settings','var(--gold)',16);
 
-  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','promo','shopee'];
+  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','promo','biaya','shopee'];
   const moreActive = S.more || bottomTabsMore.includes(S.screen) || S.screen==='settings';
   const bnColor = (on) => on ? 'var(--gold)' : 'var(--muted2)';
   const bottomNav = [
@@ -538,7 +539,7 @@ function renderVals(){
   const moreDef = [
     {k:'tempo',label:'Jatuh Tempo'}, {k:'produk',label:'Produk & Harga'}, {k:'laporan',label:'Laporan Omset'},
     {k:'users',label:'Manajemen User'}, {k:'supplier',label:'Pembelian'}, {k:'promo',label:'Promo & Bundle'},
-    {k:'shopee',label:'Shopee'},
+    {k:'biaya',label:'Biaya Operasional'}, {k:'shopee',label:'Shopee'},
   ];
   const moreItems = moreDef.map(d => ({ label:d.label, icon:ic(d.k,'var(--gold)',21), onClick:go(d.k) }));
 
@@ -664,6 +665,23 @@ function renderVals(){
     color: p.type==='Bundle' ? 'var(--gold)' : 'var(--ok)',
     onDelete:()=>deletePromo(p) }));
 
+  const expenseRows = DB.expenses.filter(e => branch==='Semua' || e.cabang===branch).map(e => {
+    const dl = e.recurring ? daysLeft(e.date) : null;
+    const over = e.recurring && !e.paid && dl < 0;
+    const status = e.paid ? 'Lunas' : (e.recurring ? (over?'Terlambat':'Belum Lunas') : 'Tercatat');
+    const color = (e.paid || !e.recurring) ? 'var(--ok)' : (over?'var(--danger)':'var(--warn)');
+    const bg = (e.paid || !e.recurring) ? 'var(--oktint)' : (over?'var(--dangertint)':'var(--warntint)');
+    return { id:e.id, category:e.category, note:e.note, amountText:rp(e.amount), cabang:e.cabang,
+      dateText:fmtDate(e.date), recurringText: e.recurring ? 'Rutin · tgl '+e.dueDay : 'Sekali ini',
+      status, color, bg, canPay: e.recurring && !e.paid,
+      onPay:()=>payExpense(e), onDelete:()=>deleteExpense(e) };
+  });
+  const curMonth = TODAY.getMonth(), curYearNum = TODAY.getFullYear();
+  const expenseMonthTotal = DB.expenses
+    .filter(e => (branch==='Semua'||e.cabang===branch))
+    .filter(e => { const d = new Date(e.date); return d.getMonth()===curMonth && d.getFullYear()===curYearNum; })
+    .reduce((s,e)=>s+e.amount, 0);
+
   const restockProd = S.restockId !== null ? DB.products.find(p=>p.id===S.restockId) : null;
 
   return {
@@ -673,7 +691,7 @@ function renderVals(){
     adminShell: S.role==='admin' && adminSet.includes(S.screen),
     secDashboard: S.screen==='dashboard', secPiutang: S.screen==='piutang', secTempo: S.screen==='tempo',
     secStok: S.screen==='stok', secUsers: S.screen==='users', secLaporan: S.screen==='laporan',
-    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secPromo: S.screen==='promo', secShopee: S.screen==='shopee',
+    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secPromo: S.screen==='promo', secBiaya: S.screen==='biaya', secShopee: S.screen==='shopee',
     sectionTitle: (isMobile ? sectionTitlesMobile[S.screen] : sectionTitles[S.screen]) || 'Dashboard',
     isAdmin: S.role==='admin',
     isNarrow,
@@ -843,6 +861,8 @@ function renderVals(){
     prValue:S.prValue, onPrValue:(e)=>setState({prValue:e.target.value}),
     prTypeTiles: ['Bundle','Diskon'].map(t=>({ label:t, on:S.prType===t, onClick:()=>setState({prType:t}) })),
     savePromo:()=>savePromo(),
+
+    expenseRows, expenseMonthTotalText: rp(expenseMonthTotal), expenseEmpty: expenseRows.length===0,
 
     restockOpen: restockProd !== null,
     restockName: restockProd ? restockProd.name+' · '+restockProd.varian : '',
@@ -1381,6 +1401,53 @@ function secSupplierHtml(V){
   </div>`;
 }
 
+function secBiayaHtml(V){
+  return `<div style="${V.popScreen}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g5),var(--g6));box-shadow:var(--cardshadow);border:1px solid var(--dangerborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--dangersoft);">Biaya Operasional Bulan Ini</span>
+        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;">${V.expenseMonthTotalText}</span>
+      </div>
+      <button ${A(V.newBiaya)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Catat Biaya</button>
+    </div>
+    ${V.expenseEmpty ? `<div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Belum ada biaya tercatat.</div>` : V.isDesktop ? `
+      <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+          <span>Kategori</span><span>Keterangan</span><span>Nominal</span><span>Tanggal</span><span style="text-align:right;">Status</span>
+        </div>
+        ${V.expenseRows.map(x => `
+          <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+            <span style="font-weight:600;">${esc(x.category)}</span>
+            <span style="color:var(--muted);">${esc(x.note||x.recurringText)}</span>
+            <span style="font-family:'Saira',sans-serif;font-weight:700;">${x.amountText}</span>
+            <span style="color:var(--muted);">${x.dateText}</span>
+            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+              ${badge(x.color,x.bg,x.status)}
+              ${x.canPay ? `<button ${A(x.onPay)} style="height:32px;padding:0 12px;border-radius:9px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+              <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
+            </span>
+          </div>`).join('')}
+      </div>` : `
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        ${V.expenseRows.map(x => `
+          <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:14px;padding:13px 15px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600;font-size:13.5px;">${esc(x.category)}</div>
+              <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${esc(x.note||x.recurringText)} · ${x.dateText}</div>
+            </div>
+            <div style="text-align:right;flex:none;">
+              <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${x.amountText}</div>
+              <span style="font-size:10px;font-weight:700;color:${x.color};background:${x.bg};padding:2px 7px;border-radius:6px;display:inline-block;margin-top:3px;">${x.status}</span>
+              <div style="margin-top:7px;display:flex;gap:6px;justify-content:flex-end;">
+                ${x.canPay ? `<button ${A(x.onPay)} style="height:30px;padding:0 12px;border-radius:8px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+                <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:8px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>`}
+  </div>`;
+}
+
 function secPromoHtml(V){
   return `<div style="${V.popScreen}">
     <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
@@ -1414,7 +1481,7 @@ function adminHtml(V){
   const sections = {
     dashboard: secDashboardHtml, piutang: secPiutangHtml, tempo: secTempoHtml, stok: secStokHtml,
     users: secUsersHtml, laporan: secLaporanHtml, produk: secProdukHtml, supplier: secSupplierHtml,
-    promo: secPromoHtml, shopee: secShopeeHtml,
+    promo: secPromoHtml, biaya: secBiayaHtml, shopee: secShopeeHtml,
   };
   const sec = sections[S.screen] ? sections[S.screen](V) : '';
   return `
