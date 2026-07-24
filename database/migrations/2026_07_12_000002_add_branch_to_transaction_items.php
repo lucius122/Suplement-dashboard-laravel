@@ -18,9 +18,18 @@ return new class extends Migration
             $table->dropIndex(['created_at']); // tercakup oleh ti_report_idx
         });
 
-        DB::statement('UPDATE transaction_items i
-            JOIN transactions t ON t.id = i.transaction_id
-            SET i.branch_id = t.branch_id');
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('UPDATE transaction_items
+                SET branch_id = (
+                    SELECT branch_id
+                    FROM transactions
+                    WHERE transactions.id = transaction_items.transaction_id
+                )');
+        } else {
+            DB::statement('UPDATE transaction_items i
+                JOIN transactions t ON t.id = i.transaction_id
+                SET i.branch_id = t.branch_id');
+        }
     }
 
     public function down(): void

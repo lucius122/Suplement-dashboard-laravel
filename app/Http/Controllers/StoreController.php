@@ -8,7 +8,9 @@ use App\Models\Product;
 use App\Models\Receivable;
 use App\Models\Supplier;
 use App\Models\Transaction;
+use App\Models\TransactionItem;
 use App\Models\User;
+use App\Services\ImageUploadService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -177,14 +179,122 @@ class StoreController extends Controller
 
     /* ---------- writes ---------- */
 
-    // ============================================================
-    // BAGIAN KASIR — DIKOSONGKAN untuk dikerjakan tim kasir.
-    // Endpoint simpan penjualan (POST /api/transactions) & tambah produk
-    // (POST /api/products) beserta logika potong stok + tempo→piutang
-    // DIHAPUS. Silakan bangun ulang di sini (atau controller sendiri).
-    // Kontrak yang diandalkan frontend kasir ada di public/js/kasir.js.
-    // Skema tabel transactions/transaction_items/receivables masih ada.
-    // ============================================================
+    /* ---------- kasir: simpan transaksi ---------- */
+
+    public function storeTransaction(Request $request)
+    {
+        $user = $request->user();
+        abort_if(! $user->branch_id, 422, 'Akun ini belum dikaitkan ke cabang manapun.');
+
+        $data = $request->validate([
+            'items'                  => ['required', 'array', 'min:1'],
+            'items.*.product_id'     => ['required', 'integer', 'exists:products,id'],
+            'items.*.qty'            => ['required', 'integer', 'min:1'],
+            'items.*.price'          => ['required', 'integer', 'min:0'],
+            'method'                 => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
+            'cash'                   => ['nullable', 'integer', 'min:0'],
+            'customer_name'          => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
+            'due_date'               => ['required_if:method,tempo', 'nullable', 'date'],
+        ]);
+
+        DB::transaction(function () use ($data, $user) {
+            $branchId = $user->branch_id;
+
+            // Validasi stok semua item sebelum memotong (all-or-nothing)
+            foreach ($data['items'] as $item) {
+                $prod = Product::find($item['product_id']);
+                abort_if(
+                    ! $prod || $prod->stok < $item['qty'],
+                    422,
+                    'Stok produk "'.($prod->name ?? '?').'" tidak mencukupi (tersisa '.($prod->stok ?? 0).').',
+                );
+            }
+
+            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['price']);
+            $cash  = ($data['method'] === 'tunai') ? ($data['cash'] ?? null) : null;
+
+            $trx = Transaction::create([
+                'branch_id' => $branchId,
+                'user_id'   => $user->id,
+                'method'    => $data['method'],
+                'total'     => $total,
+                'cash'      => $cash,
+                'change'    => $cash !== null ? max(0, $cash - $total) : null,
+            ]);
+
+            foreach ($data['items'] as $item) {
+                TransactionItem::create([
+                    'transaction_id' => $trx->id,
+                    'product_id'     => $item['product_id'],
+                    'branch_id'      => $branchId,
+                    'qty'            => $item['qty'],
+                    'price'          => $item['price'],
+                ]);
+
+                // Potong stok — sudah divalidasi di atas, tidak akan negatif
+                Product::where('id', $item['product_id'])->decrement('stok', $item['qty']);
+            }
+
+            // Pembayaran tempo → buat piutang otomatis
+            if ($data['method'] === 'tempo') {
+                Receivable::create([
+                    'name'           => $data['customer_name'],
+                    'amount'         => $total,
+                    'trx_date'       => now()->toDateString(),
+                    'due_date'       => $data['due_date'],
+                    'branch_id'      => $branchId,
+                    'transaction_id' => $trx->id,
+                    'paid'           => false,
+                ]);
+            }
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /* ---------- kasir: tambah produk ---------- */
+
+    public function storeProduct(Request $request)
+    {
+        $data = $request->validate([
+            'name'     => ['required', 'string', 'max:120'],
+            'varian'   => ['nullable', 'string', 'max:60'],
+            'harga'    => ['required', 'integer', 'min:0'],
+            'modal'    => ['nullable', 'integer', 'min:0'],
+            'kategori' => ['nullable', 'string', 'max:40'],
+            'barcode'  => ['nullable', 'string', 'max:60'],
+            'stok'     => ['nullable', 'integer', 'min:0'],
+            'exp'      => ['nullable', 'string', 'max:7'],
+            'branch'   => ['required', 'string', 'exists:branches,name'],
+            'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
+        ]);
+
+        $photo = null;
+        if ($request->hasFile('photo')) {
+            try {
+                $paths = app(ImageUploadService::class)->upload($request->file('photo'));
+                $photo = '/storage/'.$paths['medium'];
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
+
+        Product::create([
+            'name'      => trim($data['name']),
+            'varian'    => trim($data['varian'] ?? '') ?: '-',
+            'harga'     => (int) $data['harga'],
+            'modal'     => (int) ($data['modal'] ?? 0),
+            'kategori'  => $data['kategori'] ?? 'Protein',
+            'barcode'   => $data['barcode'] ?: null,
+            'stok'      => (int) ($data['stok'] ?? 0),
+            'exp'       => $data['exp'] ?: null,
+            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
+            'photo'     => $photo,
+            'custom'    => true,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
 
     public function payReceivable(Request $request, Receivable $receivable)
     {
