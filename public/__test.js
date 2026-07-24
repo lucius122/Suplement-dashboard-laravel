@@ -222,7 +222,7 @@
       type('i-bxamount', '35000'); // form baru dari newBiaya() reset bxAmount ke '' — wajib diisi ulang tiap form
       type('i-bxdueday', String(tomorrowDay));
       click(btn('SIMPAN BIAYA'));
-      step('biaya rutin tersimpan ke DB', await waitFor(() => has('Biaya tercatat') && window.SS.DB.expenses.some(x => x.recurring && x.dueDay === tomorrowDay)));
+      step('biaya rutin tersimpan ke DB', await waitFor(() => has('Biaya tercatat') && window.SS.DB.expenses.some(x => x.recurring && x.dueDay === tomorrowDay && x.amount === 35000)));
 
       // lonceng notifikasi ikut menghitung biaya rutin yang jatuh tempo ≤3 hari
       const bellBtn = () => [...document.querySelectorAll('#app button')].find(b => b.style.position === 'relative' && b.querySelector('svg'));
@@ -233,8 +233,12 @@
 
       click(btn('Biaya Operasional'));
       const lunasiOfBiaya = () => [...document.querySelectorAll('#app button')].filter(b => b.textContent.trim() === 'Lunasi');
+      // [0] ambigu: seed nanam recurring due_day 25 (Sewa) & 20 (Listrik) tiap cabang, bisa tabrakan dgn tomorrowDay.
+      // Cari baris milik tes sendiri lewat nominal 35.000 (unik, tak dipakai seed manapun) — closest('div') dari tombol
+      // naik ke div baris grid (tombol ada di dalam <span>, bukan <div>), textContent baris itu memuat amountText "Rp35.000".
+      const myLunasiBtn = () => lunasiOfBiaya().find(b => b.closest('div').textContent.includes('Rp35.000'));
       const nLunasiBefore = lunasiOfBiaya().length;
-      click(lunasiOfBiaya()[0]);
+      click(myLunasiBtn());
       step('biaya rutin ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOfBiaya().length === nLunasiBefore - 1));
 
       const delBiayaBtn = () => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('hapus-biaya-') && b.closest('div').textContent.includes(bxNote));
