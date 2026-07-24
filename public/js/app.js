@@ -3,7 +3,7 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], expenses: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
@@ -29,12 +29,17 @@ async function api(path, method, body){
 async function loadAll(){
   const [boot, dash] = await Promise.all([api('/api/bootstrap'), api('/api/dashboard')]);
   Object.assign(DB, boot, { dash });
-  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; // data berubah setelah tulis → buang cache
+  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; DB.expenses = []; // data berubah setelah tulis → buang cache
   if(USER && USER.role === 'admin'){
     await loadByUser(S.uPeriod);
     if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
     else if(S.period === 'Tahunan') await loadYearly(S.selYear);
+    await loadExpenses();
   }
+}
+async function loadExpenses(){
+  const r = await api('/api/expenses');
+  DB.expenses = r.expenses;
 }
 // penjualan per anggota: 1 periode, on-demand, di-cache per periode (khusus admin; BE menolak kasir)
 async function loadByUser(period){
@@ -85,6 +90,7 @@ let S = {
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
   scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
+  biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
   uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
@@ -279,6 +285,32 @@ async function deletePromo(p){
   try { await api('/api/promos/'+p.id, 'DELETE'); await loadAll(); flash('Promo "'+p.name+'" dihapus'); }
   catch(e) { flash(e.message); }
 }
+async function saveExpense(){
+  if(!S.bxBranch){ flash('Pilih cabang dulu'); return; }
+  const amount = parseInt(S.bxAmount)||0;
+  if(!amount){ flash('Isi nominal dulu'); return; }
+  if(S.bxRecurring && !S.bxDueDay){ flash('Isi tanggal jatuh tempo tiap bulan'); return; }
+  if(!S.bxRecurring && !S.bxDate){ flash('Isi tanggal biaya ini terjadi'); return; }
+  try {
+    await api('/api/expenses', 'POST', {
+      category: S.bxCategory, note: S.bxNote.trim(), amount,
+      branch: S.bxBranch, recurring: S.bxRecurring,
+      dueDay: S.bxRecurring ? (parseInt(S.bxDueDay)||null) : null,
+      date: S.bxRecurring ? null : S.bxDate,
+    });
+    Object.assign(S, { biayaForm:false });
+    await loadAll();
+    flash('Biaya tercatat');
+  } catch(e) { flash(e.message); }
+}
+async function payExpense(x){
+  try { await api('/api/expenses/'+x.id+'/pay', 'POST', {}); await loadAll(); flash('Biaya '+x.category+' ditandai lunas'); }
+  catch(e) { flash(e.message); }
+}
+async function deleteExpense(x){
+  try { await api('/api/expenses/'+x.id, 'DELETE'); await loadAll(); flash('Biaya dihapus'); }
+  catch(e) { flash(e.message); }
+}
 
 /* ---- scan barcode (EAN-13 dsb.) via kamera ----
    BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
@@ -400,6 +432,12 @@ function recvView(){
     return { ...r, dl, status, color, bg, soon: !r.paid && dl <= 3 };
   });
 }
+function expenseDueView(){
+  return DB.expenses.filter(e => e.recurring && !e.paid).map(e => {
+    const dl = daysLeft(e.date);
+    return { ...e, dl, soon: dl <= 3 };
+  });
+}
 function allBranches(){ return DB.branches.slice(); }
 const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
 function getDash(b){
@@ -440,8 +478,13 @@ function renderVals(){
   const isNarrow = S.vw < 380;
   const recv = recvView();
   const recvBranch = recv.filter(r => branch==='Semua' || r.cabang === branch);
-  const dueSoon = recvBranch.filter(r => r.soon);
+  const expDueBranch = expenseDueView().filter(e => branch==='Semua' || e.cabang === branch);
+  const dueSoon = [
+    ...recvBranch.filter(r => r.soon).map(r => ({ ...r, kind:'piutang' })),
+    ...expDueBranch.filter(e => e.soon).map(e => ({ ...e, kind:'biaya' })),
+  ];
   const bellCount = dueSoon.length;
+  const dueSoonRecv = recvBranch.filter(r => r.soon); // KPI "Mendekati/Lewat Tempo" di dashboard = piutang saja (uang masuk); lonceng notifikasi tetap gabungan piutang+biaya di atas
 
   const D = getDash(branch);
   const wmax = Math.max(...D.week.map(w=>w.v), 0.1);
@@ -451,17 +494,17 @@ function renderVals(){
   const tmax = Math.max(...D.top.map(t=>t.sold), 1);
   const topProducts = D.top.map(t=>({ name:t.name, soldText:t.sold+' terjual', w:(t.sold/tmax*100).toFixed(0)+'%' }));
   const piutangTotal = recvBranch.filter(r=>!r.paid).reduce((s,r)=>s+r.amount,0);
-  const dueSoonTotal = dueSoon.reduce((s,r)=>s+r.amount,0);
+  const dueSoonTotal = dueSoonRecv.reduce((s,r)=>s+r.amount,0);
 
   const bellItems = dueSoon.slice().sort((a,b)=>a.dl-b.dl).map(r=>{ const over=r.dl<0;
-    return { name:r.name, amountText:rp(r.amount), cabang:r.cabang,
+    return { name: r.kind==='biaya' ? 'Biaya: '+r.category : r.name, amountText:rp(r.amount), cabang:r.cabang,
       dueText: over ? 'Lewat '+Math.abs(r.dl)+'h' : (r.dl===0?'Hari ini':'H-'+r.dl),
       dueColor: over?'var(--danger)':'var(--warn)',
       dotBg: over?'var(--dangertint)':'var(--warntint)', dotColor: over?'var(--danger)':'var(--warn)' }; });
 
-  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', promo:'Promo', shopee:'Shopee' };
-  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', promo:'Promo & Bundle', shopee:'Integrasi Shopee' };
-  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','promo','shopee'];
+  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', promo:'Promo', biaya:'Biaya', shopee:'Shopee' };
+  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', promo:'Promo & Bundle', biaya:'Biaya Operasional', shopee:'Integrasi Shopee' };
+  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','promo','biaya','shopee'];
 
   const chip = (on)=> on ? {bd:'var(--gold)',bg:'var(--goldtint2)',cl:'var(--gold)'} : {bd:'var(--border)',bg:'var(--surface2)',cl:'var(--muted)'};
 
@@ -475,6 +518,7 @@ function renderVals(){
     {k:'users',label:'Manajemen User'},
     {k:'supplier',label:'Pembelian'},
     {k:'promo',label:'Promo & Bundle'},
+    {k:'biaya',label:'Biaya Operasional'},
     {k:'shopee',label:'Integrasi Shopee'},
   ];
   const sidebarItems = sbDef.map(d=>{ const on = S.screen===d.k;
@@ -485,7 +529,7 @@ function renderVals(){
   const refreshIcon = ic('refresh','var(--gold)',16);
   const settingsIcon = ic('settings','var(--gold)',16);
 
-  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','promo','shopee'];
+  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','promo','biaya','shopee'];
   const moreActive = S.more || bottomTabsMore.includes(S.screen) || S.screen==='settings';
   const bnColor = (on) => on ? 'var(--gold)' : 'var(--muted2)';
   const bottomNav = [
@@ -496,7 +540,7 @@ function renderVals(){
   const moreDef = [
     {k:'tempo',label:'Jatuh Tempo'}, {k:'produk',label:'Produk & Harga'}, {k:'laporan',label:'Laporan Omset'},
     {k:'users',label:'Manajemen User'}, {k:'supplier',label:'Pembelian'}, {k:'promo',label:'Promo & Bundle'},
-    {k:'shopee',label:'Shopee'},
+    {k:'biaya',label:'Biaya Operasional'}, {k:'shopee',label:'Shopee'},
   ];
   const moreItems = moreDef.map(d => ({ label:d.label, icon:ic(d.k,'var(--gold)',21), onClick:go(d.k) }));
 
@@ -622,6 +666,23 @@ function renderVals(){
     color: p.type==='Bundle' ? 'var(--gold)' : 'var(--ok)',
     onDelete:()=>deletePromo(p) }));
 
+  const expenseRows = DB.expenses.filter(e => branch==='Semua' || e.cabang===branch).map(e => {
+    const dl = e.recurring ? daysLeft(e.date) : null;
+    const over = e.recurring && !e.paid && dl < 0;
+    const status = e.paid ? 'Lunas' : (e.recurring ? (over?'Terlambat':'Belum Lunas') : 'Tercatat');
+    const color = (e.paid || !e.recurring) ? 'var(--ok)' : (over?'var(--danger)':'var(--warn)');
+    const bg = (e.paid || !e.recurring) ? 'var(--oktint)' : (over?'var(--dangertint)':'var(--warntint)');
+    return { id:e.id, category:e.category, note:e.note, amountText:rp(e.amount), cabang:e.cabang,
+      dateText:fmtDate(e.date), recurringText: e.recurring ? 'Rutin · tgl '+e.dueDay : 'Sekali ini',
+      status, color, bg, canPay: e.recurring && !e.paid,
+      onPay:()=>payExpense(e), onDelete:()=>deleteExpense(e) };
+  });
+  const curMonth = TODAY.getMonth(), curYearNum = TODAY.getFullYear();
+  const expenseMonthTotal = DB.expenses
+    .filter(e => (branch==='Semua'||e.cabang===branch))
+    .filter(e => { const d = new Date(e.date); return d.getMonth()===curMonth && d.getFullYear()===curYearNum; })
+    .reduce((s,e)=>s+e.amount, 0);
+
   const restockProd = S.restockId !== null ? DB.products.find(p=>p.id===S.restockId) : null;
 
   return {
@@ -631,7 +692,7 @@ function renderVals(){
     adminShell: S.role==='admin' && adminSet.includes(S.screen),
     secDashboard: S.screen==='dashboard', secPiutang: S.screen==='piutang', secTempo: S.screen==='tempo',
     secStok: S.screen==='stok', secUsers: S.screen==='users', secLaporan: S.screen==='laporan',
-    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secPromo: S.screen==='promo', secShopee: S.screen==='shopee',
+    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secPromo: S.screen==='promo', secBiaya: S.screen==='biaya', secShopee: S.screen==='shopee',
     sectionTitle: (isMobile ? sectionTitlesMobile[S.screen] : sectionTitles[S.screen]) || 'Dashboard',
     isAdmin: S.role==='admin',
     isNarrow,
@@ -701,7 +762,7 @@ function renderVals(){
     d_tunaiText:rpShort(D.tunai), d_marketText:rpShort(D.market), d_tempoText:rpShort(D.tempo),
     d_monthText:rp(D.month), d_trxCount:D.trx+' transaksi',
     weekBars, topProducts,
-    d_piutangText:rp(piutangTotal), d_dueSoonText:bellCount+' tagihan · '+rpShort(dueSoonTotal),
+    d_piutangText:rp(piutangTotal), d_dueSoonText:dueSoonRecv.length+' tagihan · '+rpShort(dueSoonTotal),
 
     navPiutang:go('piutang'),
     branchMenu:S.branchMenu,
@@ -801,6 +862,22 @@ function renderVals(){
     prValue:S.prValue, onPrValue:(e)=>setState({prValue:e.target.value}),
     prTypeTiles: ['Bundle','Diskon'].map(t=>({ label:t, on:S.prType===t, onClick:()=>setState({prType:t}) })),
     savePromo:()=>savePromo(),
+
+    expenseRows, expenseMonthTotalText: rp(expenseMonthTotal), expenseEmpty: expenseRows.length===0,
+
+    biayaForm:S.biayaForm,
+    newBiaya:()=>setState({biayaForm:true, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch: branch==='Semua' ? (allBranches()[0]||'') : branch, bxRecurring:false, bxDueDay:'', bxDate:''}),
+    closeBiayaForm:()=>setState({biayaForm:false}),
+    bxCategory:S.bxCategory, onBxCategory:(e)=>setState({bxCategory:e.target.value}),
+    bxNote:S.bxNote, onBxNote:(e)=>setState({bxNote:e.target.value}),
+    bxAmountText: S.bxAmount ? rp(parseInt(S.bxAmount)) : '', onBxAmount:(e)=>setState({bxAmount:(e.target.value||'').replace(/\D/g,'')}),
+    bxBranch:S.bxBranch, onBxBranch:(e)=>setState({bxBranch:e.target.value}),
+    bxRecurring:S.bxRecurring,
+    bxTypeTiles: ['Sekali Ini','Rutin Bulanan'].map(t=>({ label:t, on:(t==='Rutin Bulanan')===S.bxRecurring, onClick:()=>setState({bxRecurring: t==='Rutin Bulanan'}) })),
+    bxDueDay:S.bxDueDay, onBxDueDay:(e)=>setState({bxDueDay:(e.target.value||'').replace(/\D/g,'')}),
+    bxDate:S.bxDate, onBxDate:(e)=>setState({bxDate:e.target.value}),
+    bxCategoryOptions: ['Sewa','Listrik','Sampah','Plastik','Lainnya'],
+    saveExpense:()=>saveExpense(),
 
     restockOpen: restockProd !== null,
     restockName: restockProd ? restockProd.name+' · '+restockProd.varian : '',
@@ -1339,6 +1416,53 @@ function secSupplierHtml(V){
   </div>`;
 }
 
+function secBiayaHtml(V){
+  return `<div style="${V.popScreen}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g5),var(--g6));box-shadow:var(--cardshadow);border:1px solid var(--dangerborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--dangersoft);">Biaya Operasional Bulan Ini</span>
+        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;">${V.expenseMonthTotalText}</span>
+      </div>
+      <button ${A(V.newBiaya)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Catat Biaya</button>
+    </div>
+    ${V.expenseEmpty ? `<div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Belum ada biaya tercatat.</div>` : V.isDesktop ? `
+      <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+          <span>Kategori</span><span>Keterangan</span><span>Nominal</span><span>Tanggal</span><span style="text-align:right;">Status</span>
+        </div>
+        ${V.expenseRows.map(x => `
+          <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+            <span style="font-weight:600;">${esc(x.category)}</span>
+            <span style="color:var(--muted);">${esc(x.note||x.recurringText)}</span>
+            <span style="font-family:'Saira',sans-serif;font-weight:700;">${x.amountText}</span>
+            <span style="color:var(--muted);">${x.dateText}</span>
+            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">
+              ${badge(x.color,x.bg,x.status)}
+              ${x.canPay ? `<button ${A(x.onPay)} style="height:32px;padding:0 12px;border-radius:9px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+              <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
+            </span>
+          </div>`).join('')}
+      </div>` : `
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        ${V.expenseRows.map(x => `
+          <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:14px;padding:13px 15px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600;font-size:13.5px;">${esc(x.category)}</div>
+              <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${esc(x.note||x.recurringText)} · ${x.dateText}</div>
+            </div>
+            <div style="text-align:right;flex:none;">
+              <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${x.amountText}</div>
+              <span style="font-size:10px;font-weight:700;color:${x.color};background:${x.bg};padding:2px 7px;border-radius:6px;display:inline-block;margin-top:3px;">${x.status}</span>
+              <div style="margin-top:7px;display:flex;gap:6px;justify-content:flex-end;">
+                ${x.canPay ? `<button ${A(x.onPay)} style="height:30px;padding:0 12px;border-radius:8px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
+                <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:8px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>`}
+  </div>`;
+}
+
 function secPromoHtml(V){
   return `<div style="${V.popScreen}">
     <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
@@ -1372,7 +1496,7 @@ function adminHtml(V){
   const sections = {
     dashboard: secDashboardHtml, piutang: secPiutangHtml, tempo: secTempoHtml, stok: secStokHtml,
     users: secUsersHtml, laporan: secLaporanHtml, produk: secProdukHtml, supplier: secSupplierHtml,
-    promo: secPromoHtml, shopee: secShopeeHtml,
+    promo: secPromoHtml, biaya: secBiayaHtml, shopee: secShopeeHtml,
   };
   const sec = sections[S.screen] ? sections[S.screen](V) : '';
   return `
@@ -1688,6 +1812,37 @@ function poFormHtml(V){
   </div>`;
 }
 
+function biayaFormHtml(V){
+  return `
+  <div ${A(V.closeBiayaForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('biayaForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Catat Biaya</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Sewa/listrik yang rutin tiap bulan, atau printilan sekali ini (plastik, sampah, dll).</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Jenis')}
+        <div style="display:flex;gap:10px;margin-top:7px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-bxcategory" ${I(V.onBxCategory)} style="${inputStyle(48)}cursor:pointer;">${V.bxCategoryOptions.map(c => `<option value="${esc(c)}"${c===V.bxCategory?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-bxbranch" ${I(V.onBxBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.bxBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+      </div>
+      <div>${lbl('Keterangan (opsional)')}<input id="i-bxnote" value="${esc(V.bxNote)}" ${I(V.onBxNote)} placeholder="cnt. plastik kresek habis" style="${inputStyle(48)}"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-bxamount" value="${esc(V.bxAmountText)}" ${I(V.onBxAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+        ${V.bxRecurring ? `
+        <div style="flex:1;min-width:140px;">${lbl('Tanggal Jatuh Tempo (1-31)')}<input id="i-bxdueday" value="${esc(V.bxDueDay)}" ${I(V.onBxDueDay)} inputmode="numeric" placeholder="cnt. 25" style="${inputStyle(48)}"></div>
+        ` : `
+        <div style="flex:1;min-width:140px;">${lbl('Tanggal')}<input id="i-bxdate" value="${esc(V.bxDate)}" ${I(V.onBxDate)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        `}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closeBiayaForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveExpense)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN BIAYA</button>
+    </div>
+  </div>`;
+}
+
 function promoFormHtml(V){
   const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
   return `
@@ -1749,6 +1904,7 @@ function html(V){
     ${V.userForm ? userFormHtml(V) : ''}
     ${V.prodForm ? prodFormHtml(V) : ''}
     ${V.poForm ? poFormHtml(V) : ''}
+    ${V.biayaForm ? biayaFormHtml(V) : ''}
     ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
@@ -1766,7 +1922,7 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
-    poForm:S.poForm, promoForm:S.promoForm, restock:S.restockId!==null,
+    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, restock:S.restockId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
