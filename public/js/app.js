@@ -511,19 +511,25 @@ function renderVals(){
 
   const sbDef = [
     {k:'dashboard',label:'Dashboard'},
+    {section:'Transaksi'},
+    {k:'supplier',label:'Pembelian'},
     {k:'piutang',label:'Piutang'},
-    {k:'tempo',label:'Jatuh Tempo'},
+    {k:'tempo',label:'Jatuh Tempo',nested:true},
+    {k:'biaya',label:'Biaya Operasional'},
+    {section:'Inventori'},
     {k:'stok',label:'Manajemen Stok'},
     {k:'produk',label:'Produk & Harga'},
-    {k:'laporan',label:'Laporan Omset'},
-    {k:'users',label:'Manajemen User'},
-    {k:'supplier',label:'Pembelian'},
     {k:'promo',label:'Promo & Bundle'},
-    {k:'biaya',label:'Biaya Operasional'},
+    {section:'Laporan'},
+    {k:'laporan',label:'Laporan Omset'},
+    {section:'Pengaturan'},
+    {k:'users',label:'Manajemen User'},
     {k:'shopee',label:'Integrasi Shopee'},
   ];
-  const sidebarItems = sbDef.map(d=>{ const on = S.screen===d.k;
-    return { label:d.label, icon:ic(d.k, on?'var(--gold)':'var(--muted2)', 19),
+  const sidebarItems = sbDef.map(d=>{
+    if(d.section) return { section:d.section };
+    const on = S.screen===d.k;
+    return { label:d.label, nested:!!d.nested, icon:ic(d.k, on?'var(--gold)':'var(--muted2)', d.nested?16:19),
       bg:on?'var(--goldtint2)':'transparent', cl:on?'var(--gold)':'var(--muted2)', bd:on?'rgba(212,175,55,.4)':'transparent',
       onClick:go(d.k) }; });
   const giftIcon = ic('promo','var(--gold)',26);
@@ -1524,9 +1530,11 @@ function adminHtml(V){
         </div>
       </div>
       <div class="scrl" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;">
-        ${V.sidebarItems.map(m => `
-          <button ${A(m.onClick)} class="fx-hover" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;text-align:left;border:1px solid ${m.bd};background:${m.bg};color:${m.cl};">
-            <span style="width:20px;display:inline-flex;align-items:center;justify-content:center;">${m.icon}</span>${m.label}
+        ${V.sidebarItems.map(m => m.section ? `
+          <div style="padding:14px 12px 5px;font-family:'Saira',sans-serif;font-weight:700;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);">${esc(m.section)}</div>
+        ` : `
+          <button ${A(m.onClick)} class="fx-hover" style="display:flex;align-items:center;gap:${m.nested?'10px':'12px'};padding:${m.nested?'9px 12px':'11px 12px'};${m.nested?'margin-left:16px;width:calc(100% - 16px);':''}border-radius:11px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:${m.nested?'12.5px':'13.5px'};text-align:left;border:1px solid ${m.bd};background:${m.bg};color:${m.cl};">
+            <span style="width:${m.nested?16:20}px;display:inline-flex;align-items:center;justify-content:center;">${m.icon}</span>${m.label}
           </button>`).join('')}
       </div>
       <button ${A(V.openSettings)} style="margin-top:12px;height:44px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;">${svgGear(16)} Pengaturan</button>
