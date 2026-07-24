@@ -28,6 +28,10 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::post('/suppliers/{supplier}/pay', [StoreController::class, 'paySupplier']);
     Route::post('/promos', [StoreController::class, 'storePromo']);
     Route::delete('/promos/{promo}', [StoreController::class, 'deletePromo']);
+    Route::get('/expenses', [StoreController::class, 'expenses']);
+    Route::post('/expenses', [StoreController::class, 'storeExpense']);
+    Route::post('/expenses/{expense}/pay', [StoreController::class, 'payExpense']);
+    Route::delete('/expenses/{expense}', [StoreController::class, 'deleteExpense']);
     Route::post('/branches', [StoreController::class, 'storeBranch']);
     Route::post('/categories', [StoreController::class, 'storeCategory']);
     Route::delete('/categories/{category}', [StoreController::class, 'deleteCategory']);
