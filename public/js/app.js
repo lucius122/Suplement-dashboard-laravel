@@ -3,7 +3,7 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], expenses: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
@@ -29,12 +29,17 @@ async function api(path, method, body){
 async function loadAll(){
   const [boot, dash] = await Promise.all([api('/api/bootstrap'), api('/api/dashboard')]);
   Object.assign(DB, boot, { dash });
-  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; // data berubah setelah tulis → buang cache
+  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; DB.expenses = []; // data berubah setelah tulis → buang cache
   if(USER && USER.role === 'admin'){
     await loadByUser(S.uPeriod);
     if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
     else if(S.period === 'Tahunan') await loadYearly(S.selYear);
+    await loadExpenses();
   }
+}
+async function loadExpenses(){
+  const r = await api('/api/expenses');
+  DB.expenses = r.expenses;
 }
 // penjualan per anggota: 1 periode, on-demand, di-cache per periode (khusus admin; BE menolak kasir)
 async function loadByUser(period){
@@ -85,6 +90,7 @@ let S = {
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
   scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
+  biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
   uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
@@ -279,6 +285,32 @@ async function deletePromo(p){
   try { await api('/api/promos/'+p.id, 'DELETE'); await loadAll(); flash('Promo "'+p.name+'" dihapus'); }
   catch(e) { flash(e.message); }
 }
+async function saveExpense(){
+  if(!S.bxBranch){ flash('Pilih cabang dulu'); return; }
+  const amount = parseInt(S.bxAmount)||0;
+  if(!amount){ flash('Isi nominal dulu'); return; }
+  if(S.bxRecurring && !S.bxDueDay){ flash('Isi tanggal jatuh tempo tiap bulan'); return; }
+  if(!S.bxRecurring && !S.bxDate){ flash('Isi tanggal biaya ini terjadi'); return; }
+  try {
+    await api('/api/expenses', 'POST', {
+      category: S.bxCategory, note: S.bxNote.trim(), amount,
+      branch: S.bxBranch, recurring: S.bxRecurring,
+      dueDay: S.bxRecurring ? (parseInt(S.bxDueDay)||null) : null,
+      date: S.bxRecurring ? null : S.bxDate,
+    });
+    setState({ biayaForm:false });
+    await loadAll();
+    flash('Biaya tercatat');
+  } catch(e) { flash(e.message); }
+}
+async function payExpense(x){
+  try { await api('/api/expenses/'+x.id+'/pay', 'POST', {}); await loadAll(); flash('Biaya '+x.category+' ditandai lunas'); }
+  catch(e) { flash(e.message); }
+}
+async function deleteExpense(x){
+  try { await api('/api/expenses/'+x.id, 'DELETE'); await loadAll(); flash('Biaya dihapus'); }
+  catch(e) { flash(e.message); }
+}
 
 /* ---- scan barcode (EAN-13 dsb.) via kamera ----
    BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
@@ -400,6 +432,12 @@ function recvView(){
     return { ...r, dl, status, color, bg, soon: !r.paid && dl <= 3 };
   });
 }
+function expenseDueView(){
+  return DB.expenses.filter(e => e.recurring && !e.paid).map(e => {
+    const dl = daysLeft(e.date);
+    return { ...e, dl, soon: dl <= 3 };
+  });
+}
 function allBranches(){ return DB.branches.slice(); }
 const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
 function getDash(b){
@@ -440,7 +478,11 @@ function renderVals(){
   const isNarrow = S.vw < 380;
   const recv = recvView();
   const recvBranch = recv.filter(r => branch==='Semua' || r.cabang === branch);
-  const dueSoon = recvBranch.filter(r => r.soon);
+  const expDueBranch = expenseDueView().filter(e => branch==='Semua' || e.cabang === branch);
+  const dueSoon = [
+    ...recvBranch.filter(r => r.soon).map(r => ({ ...r, kind:'piutang' })),
+    ...expDueBranch.filter(e => e.soon).map(e => ({ ...e, kind:'biaya' })),
+  ];
   const bellCount = dueSoon.length;
 
   const D = getDash(branch);
@@ -454,7 +496,7 @@ function renderVals(){
   const dueSoonTotal = dueSoon.reduce((s,r)=>s+r.amount,0);
 
   const bellItems = dueSoon.slice().sort((a,b)=>a.dl-b.dl).map(r=>{ const over=r.dl<0;
-    return { name:r.name, amountText:rp(r.amount), cabang:r.cabang,
+    return { name: r.kind==='biaya' ? 'Biaya: '+r.category : r.name, amountText:rp(r.amount), cabang:r.cabang,
       dueText: over ? 'Lewat '+Math.abs(r.dl)+'h' : (r.dl===0?'Hari ini':'H-'+r.dl),
       dueColor: over?'var(--danger)':'var(--warn)',
       dotBg: over?'var(--dangertint)':'var(--warntint)', dotColor: over?'var(--danger)':'var(--warn)' }; });
