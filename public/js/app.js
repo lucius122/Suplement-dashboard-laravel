@@ -298,7 +298,7 @@ async function saveExpense(){
       dueDay: S.bxRecurring ? (parseInt(S.bxDueDay)||null) : null,
       date: S.bxRecurring ? null : S.bxDate,
     });
-    setState({ biayaForm:false });
+    Object.assign(S, { biayaForm:false });
     await loadAll();
     flash('Biaya tercatat');
   } catch(e) { flash(e.message); }
@@ -863,6 +863,20 @@ function renderVals(){
     savePromo:()=>savePromo(),
 
     expenseRows, expenseMonthTotalText: rp(expenseMonthTotal), expenseEmpty: expenseRows.length===0,
+
+    biayaForm:S.biayaForm,
+    newBiaya:()=>setState({biayaForm:true, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch: branch==='Semua' ? (allBranches()[0]||'') : branch, bxRecurring:false, bxDueDay:'', bxDate:''}),
+    closeBiayaForm:()=>setState({biayaForm:false}),
+    bxCategory:S.bxCategory, onBxCategory:(e)=>setState({bxCategory:e.target.value}),
+    bxNote:S.bxNote, onBxNote:(e)=>setState({bxNote:e.target.value}),
+    bxAmountText: S.bxAmount ? rp(parseInt(S.bxAmount)) : '', onBxAmount:(e)=>setState({bxAmount:(e.target.value||'').replace(/\D/g,'')}),
+    bxBranch:S.bxBranch, onBxBranch:(e)=>setState({bxBranch:e.target.value}),
+    bxRecurring:S.bxRecurring,
+    bxTypeTiles: ['Sekali Ini','Rutin Bulanan'].map(t=>({ label:t, on:(t==='Rutin Bulanan')===S.bxRecurring, onClick:()=>setState({bxRecurring: t==='Rutin Bulanan'}) })),
+    bxDueDay:S.bxDueDay, onBxDueDay:(e)=>setState({bxDueDay:(e.target.value||'').replace(/\D/g,'')}),
+    bxDate:S.bxDate, onBxDate:(e)=>setState({bxDate:e.target.value}),
+    bxCategoryOptions: ['Sewa','Listrik','Sampah','Plastik','Lainnya'],
+    saveExpense:()=>saveExpense(),
 
     restockOpen: restockProd !== null,
     restockName: restockProd ? restockProd.name+' · '+restockProd.varian : '',
@@ -1797,6 +1811,37 @@ function poFormHtml(V){
   </div>`;
 }
 
+function biayaFormHtml(V){
+  return `
+  <div ${A(V.closeBiayaForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('biayaForm')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Catat Biaya</h3>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Sewa/listrik yang rutin tiap bulan, atau printilan sekali ini (plastik, sampah, dll).</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>${lbl('Jenis')}
+        <div style="display:flex;gap:10px;margin-top:7px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-bxcategory" ${I(V.onBxCategory)} style="${inputStyle(48)}cursor:pointer;">${V.bxCategoryOptions.map(c => `<option value="${esc(c)}"${c===V.bxCategory?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-bxbranch" ${I(V.onBxBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.bxBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+      </div>
+      <div>${lbl('Keterangan (opsional)')}<input id="i-bxnote" value="${esc(V.bxNote)}" ${I(V.onBxNote)} placeholder="cnt. plastik kresek habis" style="${inputStyle(48)}"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-bxamount" value="${esc(V.bxAmountText)}" ${I(V.onBxAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+        ${V.bxRecurring ? `
+        <div style="flex:1;min-width:140px;">${lbl('Tanggal Jatuh Tempo (1-31)')}<input id="i-bxdueday" value="${esc(V.bxDueDay)}" ${I(V.onBxDueDay)} inputmode="numeric" placeholder="cnt. 25" style="${inputStyle(48)}"></div>
+        ` : `
+        <div style="flex:1;min-width:140px;">${lbl('Tanggal')}<input id="i-bxdate" value="${esc(V.bxDate)}" ${I(V.onBxDate)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        `}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button ${A(V.closeBiayaForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveExpense)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN BIAYA</button>
+    </div>
+  </div>`;
+}
+
 function promoFormHtml(V){
   const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
   return `
@@ -1858,6 +1903,7 @@ function html(V){
     ${V.userForm ? userFormHtml(V) : ''}
     ${V.prodForm ? prodFormHtml(V) : ''}
     ${V.poForm ? poFormHtml(V) : ''}
+    ${V.biayaForm ? biayaFormHtml(V) : ''}
     ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
@@ -1875,7 +1921,7 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
-    poForm:S.poForm, promoForm:S.promoForm, restock:S.restockId!==null,
+    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, restock:S.restockId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
