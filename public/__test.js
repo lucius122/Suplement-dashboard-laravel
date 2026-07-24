@@ -245,6 +245,13 @@
       click(delBiayaBtn());
       step('biaya sekali-ini terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has(bxNote)));
 
+      // hapus juga baris rutin (Rp35.000) — kalau dibiarkan, catchUpRecurringExpenses() di backend
+      // meng-klon baris rutin PALING BARU per (cabang, kategori) jadi template bulan depan, jadi sisa
+      // baris tes ini bisa membajak nominal/tanggal jatuh tempo yang ter-generate untuk "Sewa" asli
+      const delRecurringBiayaBtn = () => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('hapus-biaya-') && b.closest('div').textContent.includes('Rp35.000'));
+      click(delRecurringBiayaBtn());
+      step('biaya rutin terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has('Rp35.000')));
+
       // tambah produk (admin) — form fungsional, tersimpan ke DB
       click(btn('Produk & Harga'));
       step('layar produk terbuka', await waitFor(() => has('Margin') && btn('+ Tambah Produk')));

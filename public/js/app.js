@@ -484,6 +484,7 @@ function renderVals(){
     ...expDueBranch.filter(e => e.soon).map(e => ({ ...e, kind:'biaya' })),
   ];
   const bellCount = dueSoon.length;
+  const dueSoonRecv = recvBranch.filter(r => r.soon); // KPI "Mendekati/Lewat Tempo" di dashboard = piutang saja (uang masuk); lonceng notifikasi tetap gabungan piutang+biaya di atas
 
   const D = getDash(branch);
   const wmax = Math.max(...D.week.map(w=>w.v), 0.1);
@@ -493,7 +494,7 @@ function renderVals(){
   const tmax = Math.max(...D.top.map(t=>t.sold), 1);
   const topProducts = D.top.map(t=>({ name:t.name, soldText:t.sold+' terjual', w:(t.sold/tmax*100).toFixed(0)+'%' }));
   const piutangTotal = recvBranch.filter(r=>!r.paid).reduce((s,r)=>s+r.amount,0);
-  const dueSoonTotal = dueSoon.reduce((s,r)=>s+r.amount,0);
+  const dueSoonTotal = dueSoonRecv.reduce((s,r)=>s+r.amount,0);
 
   const bellItems = dueSoon.slice().sort((a,b)=>a.dl-b.dl).map(r=>{ const over=r.dl<0;
     return { name: r.kind==='biaya' ? 'Biaya: '+r.category : r.name, amountText:rp(r.amount), cabang:r.cabang,
@@ -761,7 +762,7 @@ function renderVals(){
     d_tunaiText:rpShort(D.tunai), d_marketText:rpShort(D.market), d_tempoText:rpShort(D.tempo),
     d_monthText:rp(D.month), d_trxCount:D.trx+' transaksi',
     weekBars, topProducts,
-    d_piutangText:rp(piutangTotal), d_dueSoonText:bellCount+' tagihan · '+rpShort(dueSoonTotal),
+    d_piutangText:rp(piutangTotal), d_dueSoonText:dueSoonRecv.length+' tagihan · '+rpShort(dueSoonTotal),
 
     navPiutang:go('piutang'),
     branchMenu:S.branchMenu,
