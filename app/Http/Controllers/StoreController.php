@@ -291,50 +291,6 @@ class StoreController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /* ---------- kasir: tambah produk ---------- */
-
-    public function storeProduct(Request $request)
-    {
-        $data = $request->validate([
-            'name'     => ['required', 'string', 'max:120'],
-            'varian'   => ['nullable', 'string', 'max:60'],
-            'harga'    => ['required', 'integer', 'min:0'],
-            'modal'    => ['nullable', 'integer', 'min:0'],
-            'kategori' => ['nullable', 'string', 'max:40'],
-            'barcode'  => ['nullable', 'string', 'max:60'],
-            'stok'     => ['nullable', 'integer', 'min:0'],
-            'exp'      => ['nullable', 'string', 'max:7'],
-            'branch'   => ['required', 'string', 'exists:branches,name'],
-            'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
-        ]);
-
-        $photo = null;
-        if ($request->hasFile('photo')) {
-            try {
-                $paths = app(ImageUploadService::class)->upload($request->file('photo'));
-                $photo = '/storage/'.$paths['medium'];
-            } catch (\InvalidArgumentException $e) {
-                return response()->json(['message' => $e->getMessage()], 422);
-            }
-        }
-
-        Product::create([
-            'name'      => trim($data['name']),
-            'varian'    => trim($data['varian'] ?? '') ?: '-',
-            'harga'     => (int) $data['harga'],
-            'modal'     => (int) ($data['modal'] ?? 0),
-            'kategori'  => $data['kategori'] ?? 'Protein',
-            'barcode'   => $data['barcode'] ?: null,
-            'stok'      => (int) ($data['stok'] ?? 0),
-            'exp'       => $data['exp'] ?: null,
-            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
-            'photo'     => $photo,
-            'custom'    => true,
-        ]);
-
-        return response()->json(['ok' => true]);
-    }
-
     public function payReceivable(Request $request, Receivable $receivable)
     {
         $this->assertAdmin($request);
@@ -350,30 +306,56 @@ class StoreController extends Controller
 
     public function storeProduct(Request $request)
     {
-        // Tambah produk dari layar admin "Produk & Harga" (bukan bagian kasir).
-        $this->assertAdmin($request);
+        // Endpoint ini dipakai oleh KASIR (tambah produk dari layar kasir)
+        // maupun ADMIN (tambah produk dari layar Produk & Harga).
+        // Kasir hanya bisa menambah produk ke cabangnya sendiri;
+        // Admin bisa memilih cabang tujuan via field 'branch'.
+        $user    = $request->user();
+        $isAdmin = $user->role === 'Admin';
+
         $data = $request->validate([
             'name'     => ['required', 'string', 'max:120'],
             'varian'   => ['nullable', 'string', 'max:60'],
-            'harga'    => ['required', 'integer', 'min:1'],
+            'harga'    => ['required', 'integer', 'min:0'],
             'modal'    => ['nullable', 'integer', 'min:0'],
             'stok'     => ['nullable', 'integer', 'min:0'],
-            'kategori' => ['required', Rule::exists('categories', 'name')],
-            'branch'   => ['required', 'string', 'exists:branches,name'],
+            'kategori' => ['nullable', 'string', 'max:40'],
+            'branch'   => [$isAdmin ? 'required' : 'nullable', 'string', 'exists:branches,name'],
             'barcode'  => ['nullable', 'string', 'max:60'],
             'exp'      => ['nullable', 'regex:/^\d{4}-\d{2}$/'],  // format YYYY-MM
+            'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
         ]);
+
+        // Tentukan branch: Admin bisa pilih, Kasir pakai branch akun sendiri
+        if ($isAdmin) {
+            $branchId = Branch::where('name', $data['branch'])->value('id');
+        } else {
+            abort_if(! $user->branch_id, 422, 'Akun ini belum dikaitkan ke cabang manapun.');
+            $branchId = $user->branch_id;
+        }
+
+        // Proses upload foto jika ada
+        $photo = null;
+        if ($request->hasFile('photo')) {
+            try {
+                $paths = app(ImageUploadService::class)->upload($request->file('photo'));
+                $photo = '/storage/'.$paths['medium'];
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
 
         $product = Product::create([
             'name'      => trim($data['name']),
             'varian'    => trim($data['varian'] ?? '') ?: '-',
-            'harga'     => $data['harga'],
-            'modal'     => $data['modal'] ?? 0,
-            'kategori'  => $data['kategori'],
-            'stok'      => $data['stok'] ?? 0,
-            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
-            'barcode'   => $data['barcode'] ?? null,
-            'exp'       => $data['exp'] ?? null,
+            'harga'     => (int) $data['harga'],
+            'modal'     => (int) ($data['modal'] ?? 0),
+            'kategori'  => $data['kategori'] ?? 'Protein',
+            'stok'      => (int) ($data['stok'] ?? 0),
+            'branch_id' => $branchId,
+            'barcode'   => $data['barcode'] ?: null,
+            'exp'       => $data['exp'] ?: null,
+            'photo'     => $photo,
             'custom'    => true,
         ]);
 
