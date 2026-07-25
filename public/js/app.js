@@ -324,13 +324,11 @@ let scanStream = null, scanTimer = null, scanDetector = null, zxingReader = null
 let lastScanCode = '', lastScanAt = 0;
 
 async function decodeFrameFromVideo(videoElement, reader) {
-  if (!videoElement || videoElement.videoWidth === 0) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = videoElement.videoWidth;
-  canvas.height = videoElement.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-  return await reader.decodeFromCanvas(canvas);
+  if (!videoElement || videoElement.videoWidth === 0 || videoElement.readyState < 2) return null;
+  // ZXing BrowserMultiFormatReader.decode() menerima HTMLVideoElement secara langsung,
+  // membaca videoWidth/videoHeight, dan menggambar frame ke canvas internal secara presisi.
+  try { return reader.decode(videoElement); }
+  catch(e) { return null; }  // NotFoundException → frame belum ada barcode
 }
 
 async function startScan(target){
@@ -341,17 +339,23 @@ async function startScan(target){
     setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
   }
+  // Inisialisasi detector yang tersedia (Native + ZXing Fallback)
+  if(hasNative) {
+    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
+  }
   if(hasZxing) {
     zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
-  } else {
-    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
   }
   try {
     await openScanDevice(S.scanDeviceId);
     const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
     setState({ scanDevices: devices });
   } catch(e){
-    setState({ scanMsg:'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
+    const isInsecure = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+    const msg = isInsecure
+      ? 'Kamera diblokir karena koneksi HTTP (tidak aman). Gunakan HTTPS (mis. localtunnel) atau buka via localhost — atau ketik nomor barcode di bawah.'
+      : 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.';
+    setState({ scanMsg: msg });
   }
 }
 async function openScanDevice(deviceId){
@@ -378,13 +382,18 @@ async function scanTick(){
   if(!v || v.readyState < 2 || scanBusy) return;
   scanBusy = true;
   try {
+    let codeFound = null;
     if(scanDetector){
-      const codes = await scanDetector.detect(v);
-      if(codes.length) handleScanResult(codes[0].rawValue);
-    } else if(zxingReader){
-      const result = await decodeFrameFromVideo(v, zxingReader);
-      if(result) handleScanResult(result.getText());
+      try {
+        const codes = await scanDetector.detect(v);
+        if(codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
+      } catch(e){}
     }
+    if(!codeFound && zxingReader){
+      const result = await decodeFrameFromVideo(v, zxingReader);
+      if(result) codeFound = result.getText();
+    }
+    if(codeFound) handleScanResult(codeFound);
   } catch(e){ /* frame gagal dideteksi */ }
   finally { scanBusy = false; }
 }
@@ -426,17 +435,22 @@ async function startScanKasir(mode) {
     setState({ k_scanMsg: 'Browser tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
   }
+  if (hasNative) {
+    kScanDetector = kScanDetector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
+  }
   if (hasZxing) {
     kZxingReader = kZxingReader || new ZXing.BrowserMultiFormatReader();
-  } else {
-    kScanDetector = kScanDetector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
   }
   try {
     await openKScanDevice(S.k_scanDeviceId);
     const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
     setState({ k_scanDevices: devices });
   } catch(e) {
-    setState({ k_scanMsg: 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
+    const isInsecure = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+    const msg = isInsecure
+      ? 'Kamera diblokir karena koneksi HTTP (tidak aman). Gunakan HTTPS atau buka via localhost — atau ketik nomor barcode di bawah.'
+      : 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.';
+    setState({ k_scanMsg: msg });
   }
 }
 async function openKScanDevice(deviceId) {
@@ -462,13 +476,18 @@ async function kScanTick() {
   if (!v || v.readyState < 2 || kScanBusy) return;
   kScanBusy = true;
   try {
+    let codeFound = null;
     if (kScanDetector) {
-      const codes = await kScanDetector.detect(v);
-      if (codes.length) handleScanKasir(codes[0].rawValue);
-    } else if (kZxingReader) {
-      const result = await decodeFrameFromVideo(v, kZxingReader);
-      if (result) handleScanKasir(result.getText());
+      try {
+        const codes = await kScanDetector.detect(v);
+        if (codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
+      } catch(e){}
     }
+    if (!codeFound && kZxingReader) {
+      const result = await decodeFrameFromVideo(v, kZxingReader);
+      if (result) codeFound = result.getText();
+    }
+    if (codeFound) handleScanKasir(codeFound);
   } catch(e) { /* frame tidak terbaca */ }
   finally { kScanBusy = false; }
 }
