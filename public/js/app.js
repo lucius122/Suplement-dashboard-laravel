@@ -97,8 +97,8 @@ let S = {
   k_restockId:null, k_restockQty:'',                        // modal restock setelah scan masuk
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
-  // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
-  // oleh modul kasir (public/js/kasir.js) lewat window.SS.setState.
+  // state untuk custom form controls (Select, DatePicker, MonthPicker)
+  activeDD: null, activeDP: null, activeMP: null,
 };
 
 const TODAY = new Date();
@@ -842,9 +842,13 @@ function renderVals(){
   }));
   // isi dropdown: seluruh pegawai, disaring oleh teks pencarian di dalam dropdown
   const mq = S.memberSearch.trim().toLowerCase();
-  const memberOptions = (mq ? mRanked.filter(u => (u.name+' @'+u.uname).toLowerCase().includes(mq)) : mRanked)
+  const mOptionsSource = mq ? mRanked.filter(u => (u.name+' @'+u.uname).toLowerCase().includes(mq)) : mRanked;
+  const memberOptions = mOptionsSource
     .map(u => ({ name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang, totalText: u.total>0?rp(u.total):'',
       checked: mSel.has(u.uname), onClick: ()=>toggleSel(u.uname) }));
+  // "Pilih semua" cuma pilih hasil yang lagi kefilter pencarian, bukan seluruh pegawai
+  const selectAllVisible = ()=> setState({ selMembers:[...new Set([...S.selMembers, ...mOptionsSource.map(u=>u.uname)])] });
+  const memberAllVisibleSelected = mOptionsSource.length>0 && mOptionsSource.every(u=>mSel.has(u.uname));
   // chip filter aktif: satu chip per pegawai terpilih, bisa dihapus satu-satu
   const memberSelChips = mRanked.filter(u=>mSel.has(u.uname)).map(u=>({ name:u.name, onRemove:()=>removeSel(u.uname) }));
   // footer: kalau ada yang dipilih → jumlah terpilih; kalau tidak → seluruh pegawai
@@ -1016,8 +1020,8 @@ function renderVals(){
     pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
     pVar:S.pVar, onPVar:(e)=>setState({pVar:e.target.value}),
     pKat:S.pKat, onPKat:(e)=>setState({pKat:e.target.value}),
-    pHargaText: S.pHarga ? rp(parseInt(S.pHarga)) : '', onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
-    pModalText: S.pModal ? rp(parseInt(S.pModal)) : '', onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
+    pHargaText: S.pHarga, onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
+    pModalText: S.pModal, onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
     pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
     pBarcode:S.pBarcode, onPBarcode:(e)=>setState({pBarcode:e.target.value}),
     pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
@@ -1045,6 +1049,7 @@ function renderVals(){
     memberSelChips,
     memberToolbarCountText: mSel.size ? mSel.size+' dari '+mRanked.length+' pegawai' : mRanked.length+' pegawai',
     clearMemberSel: ()=>setState({selMembers:[]}),
+    selectAllVisible, memberAllVisibleSelected,
     memberTotalText: rp(memberTotal), memberTrxText: memberTrx+' transaksi',
     memberFooterLabel: mSel.size ? mSel.size+' pegawai terpilih' : mRanked.length+' pegawai',
     memberCountText: mRanked.length+' pegawai',
@@ -1053,7 +1058,7 @@ function renderVals(){
     newPO:()=>setState({poForm:true, poName:'', poAmount:'', poDue:''}),
     closePoForm:()=>setState({poForm:false}),
     poName:S.poName, onPoName:(e)=>setState({poName:e.target.value}),
-    poAmountText: S.poAmount ? rp(parseInt(S.poAmount)) : '', onPoAmount:(e)=>setState({poAmount:(e.target.value||'').replace(/\D/g,'')}),
+    poAmountText: S.poAmount, onPoAmount:(e)=>setState({poAmount:(e.target.value||'').replace(/\D/g,'')}),
     poDue:S.poDue, onPoDue:(e)=>setState({poDue:e.target.value}),
     saveSupplier:()=>saveSupplier(),
 
@@ -1074,7 +1079,7 @@ function renderVals(){
     closeBiayaForm:()=>setState({biayaForm:false}),
     bxCategory:S.bxCategory, onBxCategory:(e)=>setState({bxCategory:e.target.value}),
     bxNote:S.bxNote, onBxNote:(e)=>setState({bxNote:e.target.value}),
-    bxAmountText: S.bxAmount ? rp(parseInt(S.bxAmount)) : '', onBxAmount:(e)=>setState({bxAmount:(e.target.value||'').replace(/\D/g,'')}),
+    bxAmountText: S.bxAmount, onBxAmount:(e)=>setState({bxAmount:(e.target.value||'').replace(/\D/g,'')}),
     bxBranch:S.bxBranch, onBxBranch:(e)=>setState({bxBranch:e.target.value}),
     bxRecurring:S.bxRecurring,
     bxTypeTiles: ['Sekali Ini','Rutin Bulanan'].map(t=>({ label:t, on:(t==='Rutin Bulanan')===S.bxRecurring, onClick:()=>setState({bxRecurring: t==='Rutin Bulanan'}) })),
@@ -1108,6 +1113,332 @@ const themeBtn = (V, box, icon, rad) => `<button ${A(V.toggleTheme)} style="widt
 const lbl = t => `<label style="display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;margin-bottom:6px;">${t}</label>`;
 const inputStyle = h => `width:100%;box-sizing:border-box;height:${h}px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 12px;outline:none;font-family:'Hanken Grotesk',sans-serif;`;
 
+
+/* ================= custom form controls (Select, DatePicker, MonthPicker) ================= */
+function openCustomDD(id, value, options, onChange, placeholder, styleHeight = 48) {
+  const normOpts = (options || []).map(o => typeof o === 'object' ? o : { value: o, label: String(o) });
+  const curIdx = normOpts.findIndex(o => String(o.value) === String(value));
+  setState({
+    activeDD: (S.activeDD && S.activeDD.id === id) ? null : {
+      id, value: String(value||''), options: normOpts, onChange, placeholder: placeholder || 'Pilih...', search: '', activeIdx: Math.max(0, curIdx), styleHeight
+    },
+    activeDP: null,
+    activeMP: null
+  });
+}
+
+function selectCustomDDOption(optValue) {
+  if (!S.activeDD) return;
+  const fn = S.activeDD.onChange;
+  setState({ activeDD: null });
+  if (typeof fn === 'function') fn(optValue);
+}
+
+function openCustomDP(id, value, onChange, placeholder = 'Pilih tanggal...', styleHeight = 48) {
+  let vDate = value ? new Date(value + 'T00:00:00') : new Date();
+  if (isNaN(vDate.getTime())) vDate = new Date();
+  setState({
+    activeDP: (S.activeDP && S.activeDP.id === id) ? null : {
+      id, value: value || '', onChange, placeholder, viewYear: vDate.getFullYear(), viewMonth: vDate.getMonth(), styleHeight
+    },
+    activeDD: null,
+    activeMP: null
+  });
+}
+
+function selectCustomDPDate(dateStr) {
+  if (!S.activeDP) return;
+  const fn = S.activeDP.onChange;
+  setState({ activeDP: null });
+  if (typeof fn === 'function') fn(dateStr);
+}
+
+function navCustomDPMonth(delta) {
+  if (!S.activeDP) return;
+  let m = S.activeDP.viewMonth + delta;
+  let y = S.activeDP.viewYear;
+  if (m < 0) { m = 11; y--; }
+  else if (m > 11) { m = 0; y++; }
+  setState({ activeDP: { ...S.activeDP, viewMonth: m, viewYear: y } });
+}
+
+function openCustomMP(id, value, onChange, placeholder = 'Pilih bulan...', styleHeight = 48) {
+  let y = new Date().getFullYear();
+  if (value && value.includes('-')) {
+    const parts = value.split('-');
+    const parsedY = parseInt(parts[0]);
+    if (!isNaN(parsedY)) y = parsedY;
+  }
+  setState({
+    activeMP: (S.activeMP && S.activeMP.id === id) ? null : {
+      id, value: value || '', onChange, placeholder, viewYear: y, styleHeight
+    },
+    activeDD: null,
+    activeDP: null
+  });
+}
+
+function selectCustomMPMonth(monthStr) {
+  if (!S.activeMP) return;
+  const fn = S.activeMP.onChange;
+  setState({ activeMP: null });
+  if (typeof fn === 'function') fn(monthStr);
+}
+
+function navCustomMPYear(delta) {
+  if (!S.activeMP) return;
+  setState({ activeMP: { ...S.activeMP, viewYear: S.activeMP.viewYear + delta } });
+}
+
+function closeCustomPickers() {
+  if (S.activeDD || S.activeDP || S.activeMP) {
+    setState({ activeDD: null, activeDP: null, activeMP: null });
+  }
+}
+
+if (typeof window !== 'undefined' && !window._ss_pickers_bound) {
+  window._ss_pickers_bound = true;
+  document.addEventListener('mousedown', function(e) {
+    if (!S.activeDD && !S.activeDP && !S.activeMP) return;
+    const panel = document.getElementById('custom-portal-panel');
+    if (panel && panel.contains(e.target)) return;
+    const activeObj = S.activeDD || S.activeDP || S.activeMP;
+    if (activeObj) {
+      const trig = document.getElementById('custom-trig-' + activeObj.id);
+      if (trig && trig.contains(e.target)) return;
+    }
+    closeCustomPickers();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeCustomPickers();
+      return;
+    }
+    if (S.activeDD) {
+      const dd = S.activeDD;
+      const filtered = dd.options.filter(o => !dd.search || o.label.toLowerCase().includes(dd.search.toLowerCase()));
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIdx = Math.min(filtered.length - 1, dd.activeIdx + 1);
+        setState({ activeDD: { ...dd, activeIdx: nextIdx } });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevIdx = Math.max(0, dd.activeIdx - 1);
+        setState({ activeDD: { ...dd, activeIdx: prevIdx } });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filtered[dd.activeIdx]) {
+          selectCustomDDOption(filtered[dd.activeIdx].value);
+        }
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setState({ activeDD: { ...dd, activeIdx: 0 } });
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setState({ activeDD: { ...dd, activeIdx: Math.max(0, filtered.length - 1) } });
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const char = e.key.toLowerCase();
+        const matchIdx = filtered.findIndex(o => o.label.toLowerCase().startsWith(char));
+        if (matchIdx !== -1) {
+          setState({ activeDD: { ...dd, activeIdx: matchIdx } });
+        }
+      }
+    }
+  });
+}
+
+function customSelectHtml(id, value, options, onChange, placeholder = 'Pilih...', styleHeight = 48) {
+  const normOpts = (options || []).map(o => typeof o === 'object' ? o : { value: o, label: String(o) });
+  const selected = normOpts.find(o => String(o.value) === String(value));
+  const isOpen = S.activeDD && S.activeDD.id === id;
+  const labelText = selected ? selected.label : placeholder;
+  
+  return `<button id="custom-trig-${id}" type="button" aria-haspopup="listbox" aria-expanded="${isOpen}" ${A(() => openCustomDD(id, value, options, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${selected ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
+    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(labelText)}</span>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;transition:transform .15s ease;transform:rotate(${isOpen ? 180 : 0}deg);"><path d="M6 9l6 6 6-6" stroke="#D4AF37" stroke-width="2.4" stroke-linecap="round"></path></svg>
+  </button>`;
+}
+
+function customDatePickerHtml(id, value, onChange, placeholder = 'Pilih tanggal...', styleHeight = 48) {
+  const isOpen = S.activeDP && S.activeDP.id === id;
+  let dispText = placeholder;
+  if (value && value.includes('-')) {
+    const [y, m, d] = value.split('-');
+    dispText = d + '/' + m + '/' + y;
+  }
+  
+  return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomDP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
+    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dispText)}</span>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:none;"><rect x="3" y="4" width="18" height="18" rx="2" stroke="#D4AF37" stroke-width="1.8"></rect><path d="M16 2v4M8 2v4M3 10h18" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round"></path></svg>
+  </button>`;
+}
+
+function customMonthPickerHtml(id, value, onChange, placeholder = 'Pilih bulan...', styleHeight = 48) {
+  const isOpen = S.activeMP && S.activeMP.id === id;
+  let dispText = placeholder;
+  if (value && value.includes('-')) {
+    const [y, m] = value.split('-');
+    const mIdx = parseInt(m) - 1;
+    dispText = (MON[mIdx] || m) + ' ' + y;
+  }
+  
+  return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomMP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
+    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dispText)}</span>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:none;"><rect x="3" y="4" width="18" height="18" rx="2" stroke="#D4AF37" stroke-width="1.8"></rect><path d="M16 2v4M8 2v4M3 10h18" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round"></path></svg>
+  </button>`;
+}
+
+function customFormFieldHtml(label, controlHtml, helperOrErr = '') {
+  return `<div>
+    ${lbl(label)}
+    ${controlHtml}
+    ${helperOrErr ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">${esc(helperOrErr)}</div>` : ''}
+  </div>`;
+}
+
+function customDDPanelHtml(V) {
+  const dd = S.activeDD;
+  if (!dd) return '';
+  const searchNeed = dd.options.length > 8;
+  const filtered = dd.options.filter(o => !dd.search || o.label.toLowerCase().includes(dd.search.toLowerCase()));
+  
+  return `
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:8px;box-shadow:0 24px 60px rgba(0,0,0,0.85);max-height:240px;overflow-y:auto;color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
+    ${searchNeed ? `
+    <div style="padding:4px 4px 8px;">
+      <input id="i-ddsearch" value="${esc(dd.search)}" ${I((e) => setState({ activeDD: { ...S.activeDD, search: e.target.value, activeIdx: 0 } }))} placeholder="Cari..." style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:12px;padding:0 10px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+    </div>` : ''}
+    ${filtered.length === 0 ? `
+      <div style="padding:12px;text-align:center;font-size:12px;color:var(--muted);">Tidak ada hasil.</div>
+    ` : `
+      <div role="listbox" style="display:flex;flex-direction:column;gap:2px;">
+        ${filtered.map((o, idx) => {
+          const isSel = String(o.value) === String(dd.value);
+          const isAct = idx === dd.activeIdx;
+          let style = 'padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:space-between;transition:background .1s ease;';
+          if (isSel) {
+            style += 'background:rgba(212,175,55,0.15);color:#D4AF37;font-weight:700;';
+          } else if (isAct) {
+            style += 'background:rgba(255,255,255,0.06);color:var(--text);';
+          } else {
+            style += 'background:transparent;color:var(--text);';
+          }
+          return `<div role="option" aria-selected="${isSel}" ${A(() => selectCustomDDOption(o.value))} class="fx-hover" style="${style}">
+            <span>${esc(o.label)}</span>
+            ${isSel ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>` : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    `}
+  </div>`;
+}
+
+function customDPPanelHtml(V) {
+  const dp = S.activeDP;
+  if (!dp) return '';
+  const y = dp.viewYear;
+  const m = dp.viewMonth;
+  const monthName = MON[m] + ' ' + y;
+  
+  const firstDay = new Date(y, m, 1).getDay();
+  const totalDays = new Date(y, m + 1, 0).getDate();
+  const dayNames = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+  
+  let curValStr = dp.value;
+  const todayStr = TODAY.toISOString().slice(0, 10);
+  
+  let daysHtml = [];
+  for (let i = 0; i < firstDay; i++) {
+    daysHtml.push(`<span style="height:32px;"></span>`);
+  }
+  for (let d = 1; d <= totalDays; d++) {
+    const dStr = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const isSelected = dStr === curValStr;
+    const isToday = dStr === todayStr;
+    
+    let style = 'height:32px;border-radius:8px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    if (isSelected) {
+      style += 'background:#D4AF37;color:#0A0A0C;font-weight:800;box-shadow:0 0 10px rgba(212,175,55,0.4);';
+    } else if (isToday) {
+      style += 'background:rgba(212,175,55,0.12);color:#D4AF37;outline:1px solid rgba(212,175,55,0.4);';
+    } else {
+      style += 'background:transparent;color:var(--text);';
+    }
+    
+    daysHtml.push(`<button ${A(() => selectCustomDPDate(dStr))} class="fx-hover" style="${style}">${d}</button>`);
+  }
+
+  return `
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:14px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <button ${A(() => navCustomDPMonth(-1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">‹</button>
+      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:#D4AF37;">${monthName}</span>
+      <button ${A(() => navCustomDPMonth(1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;margin-bottom:6px;font-size:10px;font-family:'Saira',sans-serif;font-weight:700;color:var(--muted);text-transform:uppercase;">
+      ${dayNames.map(n => `<span>${n}</span>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">
+      ${daysHtml.join('')}
+    </div>
+  </div>`;
+}
+
+function customMPPanelHtml(V) {
+  const mp = S.activeMP;
+  if (!mp) return '';
+  const y = mp.viewYear;
+  let curValStr = mp.value;
+  
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  
+  let monthsHtml = monthNames.map((mName, idx) => {
+    const mStr = y + '-' + String(idx + 1).padStart(2, '0');
+    const isSelected = mStr === curValStr;
+    
+    let style = 'height:40px;border-radius:10px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    if (isSelected) {
+      style += 'background:#D4AF37;color:#0A0A0C;font-weight:800;box-shadow:0 0 10px rgba(212,175,55,0.4);';
+    } else {
+      style += 'background:rgba(255,255,255,0.03);color:var(--text);border:1px solid rgba(255,255,255,0.06);';
+    }
+    return `<button ${A(() => selectCustomMPMonth(mStr))} class="fx-hover" style="${style}">${mName}</button>`;
+  });
+
+  return `
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:14px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <button ${A(() => navCustomMPYear(-1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">‹</button>
+      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:#D4AF37;">${y}</span>
+      <button ${A(() => navCustomMPYear(1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+      ${monthsHtml.join('')}
+    </div>
+  </div>`;
+}
+
+function customOverlayHtml(V) {
+  if (S.activeDD) return customDDPanelHtml(V);
+  if (S.activeDP) return customDPPanelHtml(V);
+  if (S.activeMP) return customMPPanelHtml(V);
+  return '';
+}
+
+window.SS = window.SS || {};
+Object.assign(window.SS, {
+  customSelectHtml,
+  customDatePickerHtml,
+  customMonthPickerHtml,
+  customFormFieldHtml,
+  openCustomDD,
+  openCustomDP,
+  openCustomMP,
+  closeCustomPickers,
+  selectCustomDDOption,
+  selectCustomDPDate,
+  selectCustomMPMonth
+});
 
 /* ================= LOGIN ================= */
 function loginHtml(V){
@@ -1846,8 +2177,7 @@ function memberDdPanelHtml(V){
       ${svgSearchIc(15,22)}
       <input id="i-membersearch" value="${esc(V.memberSearch)}" ${I(V.onMemberSearch)} placeholder="Cari nama pegawai…" style="width:100%;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:13px;padding:0 12px 0 34px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
     </div>
-    <div class="scrl" style="max-height:240px;overflow-y:auto;">
-      ${V.memberSelCount ? `<button ${A(V.clearMemberSel)} style="width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid var(--divider);cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:12.5px;font-weight:600;color:var(--gold);">✕ Kosongkan pilihan (${V.memberSelCount})</button>` : ''}
+    <div class="scrl" style="max-height:280px;overflow-y:auto;">
       ${V.memberOptionsEmpty ? `<div style="padding:16px;text-align:center;color:var(--dim2);font-size:12.5px;">Tidak ada pegawai cocok.</div>` :
         V.memberOptions.map(o => `
           <button ${A(o.onClick)} title="opt-${esc(o.unameText)}" class="fx-hover" role="option" aria-selected="${o.checked}" style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:${o.checked?'var(--goldtint)':'none'};border:none;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;text-align:left;">
@@ -1855,6 +2185,10 @@ function memberDdPanelHtml(V){
             <span style="flex:1;min-width:0;"><span style="font-size:13px;font-weight:600;color:var(--text);">${esc(o.name)}</span> <span style="font-size:11px;color:var(--text2);">${esc(o.unameText)} · ${o.roleText} · ${esc(o.cabang)}</span></span>
             ${o.totalText ? `<span style="font-size:11.5px;color:var(--muted);white-space:nowrap;font-family:'Saira',sans-serif;">${o.totalText}</span>` : ''}
           </button>`).join('')}
+    </div>
+    <div style="border-top:1px solid rgba(255,255,255,.1);display:flex;justify-content:space-between;padding:10px 14px;">
+      <button type="button" ${A(V.clearMemberSel)} ${V.memberSelCount?'':'disabled'} class="fx-textdim" aria-label="Kosongkan semua pilihan pegawai" style="background:none;border:none;padding:0;font-size:13px;font-family:'Hanken Grotesk',sans-serif;font-weight:600;cursor:pointer;border-radius:4px;">Kosongkan</button>
+      <button type="button" ${A(V.selectAllVisible)} ${V.memberAllVisibleSelected?'disabled':''} class="fx-textdim" aria-label="Pilih semua pegawai yang tampil" style="background:none;border:none;padding:0;font-size:13px;font-family:'Hanken Grotesk',sans-serif;font-weight:600;cursor:pointer;border-radius:4px;">Pilih semua</button>
     </div>
   </div>`;
 }
@@ -1886,9 +2220,9 @@ function scanHtml(V){
       <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
       <div style="display:flex;align-items:center;gap:8px;">
         ${V.scanDevices.length > 1 ? `
-          <select ${I(V.onScanDevice)} title="pilih kamera (mis. DroidCam)" style="height:34px;max-width:150px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:11px;padding:0 8px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
-            ${V.scanDevices.map((d,i) => `<option value="${esc(d.deviceId)}"${d.deviceId===V.scanDeviceId?' selected':''}>${esc(d.label || ('Kamera '+(i+1)))}</option>`).join('')}
-          </select>
+          <div style="width:140px;">
+            ${customSelectHtml('scandevice', V.scanDeviceId, V.scanDevices.map((d,i) => ({ value: d.deviceId, label: d.label || ('Kamera '+(i+1)) })), (v) => changeScanDevice(v), 'Pilih kamera...', 34)}
+          </div>
         ` : ''}
         <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;flex:none;">×</button>
       </div>
@@ -1993,7 +2327,7 @@ function prodFormHtml(V){
       <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
-        <div>${lbl('Kategori')}<select id="i-pkat" ${I(V.onPKat)} style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.pKat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div>${lbl('Kategori')}${customSelectHtml('pkat', V.pKat, V.kCatOptions, (v) => setState({ pKat: v }), 'Pilih kategori...')}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Harga Jual')}<input id="i-pharga" value="${esc(V.pHargaText)}" ${I(V.onPHarga)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
@@ -2001,14 +2335,14 @@ function prodFormHtml(V){
       </div>
       <div style="font-size:12px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:9px 12px;line-height:1.4;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>${lbl('Cabang')}<select id="i-pbranch" ${I(V.onPBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.pBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <div>${lbl('Cabang')}${customSelectHtml('pbranch', V.pBranch, V.prodBranchOptions, (v) => setState({ pBranch: v }), 'Pilih cabang...')}</div>
         <div>${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Barcode')}
           <div style="display:flex;gap:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;min-width:0;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 10px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:42px;flex:none;height:48px;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(18)}</button></div>
         </div>
-        <div>${lbl('Kedaluwarsa')}<input id="i-pexp" value="${esc(V.pExp)}" ${I(V.onPExp)} type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div>${lbl('Kedaluwarsa')}${customMonthPickerHtml('pexp', V.pExp, (v) => setState({ pExp: v }), 'Pilih bulan...')}</div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px;">
@@ -2061,7 +2395,7 @@ function poFormHtml(V){
       <div>${lbl('Nama Supplier')}<input id="i-poname" value="${esc(V.poName)}" ${I(V.onPoName)} placeholder="cnt. PT Nutrisi Prima" style="${inputStyle(48)}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Nominal')}<input id="i-poamount" value="${esc(V.poAmountText)}" ${I(V.onPoAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
-        <div>${lbl('Jatuh Tempo')}<input id="i-podue" value="${esc(V.poDue)}" ${I(V.onPoDue)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div>${lbl('Jatuh Tempo')}${customDatePickerHtml('podue', V.poDue, (v) => setState({ poDue: v }), 'Pilih tanggal...')}</div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
@@ -2087,8 +2421,8 @@ function biayaFormHtml(V){
         <div style="display:flex;gap:8px;margin-top:2px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>${lbl('Kategori')}<select id="i-bxcategory" ${I(V.onBxCategory)} style="${inputStyle(48)}cursor:pointer;">${V.bxCategoryOptions.map(c => `<option value="${esc(c)}"${c===V.bxCategory?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
-        <div>${lbl('Cabang')}<select id="i-bxbranch" ${I(V.onBxBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.bxBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <div>${lbl('Kategori')}${customSelectHtml('bxcategory', V.bxCategory, V.bxCategoryOptions, (v) => setState({ bxCategory: v }), 'Pilih kategori...')}</div>
+        <div>${lbl('Cabang')}${customSelectHtml('bxbranch', V.bxBranch, V.prodBranchOptions, (v) => setState({ bxBranch: v }), 'Pilih cabang...')}</div>
       </div>
       <div>${lbl('Keterangan (opsional)')}<input id="i-bxnote" value="${esc(V.bxNote)}" ${I(V.onBxNote)} placeholder="cnt. plastik kresek habis" style="${inputStyle(48)}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -2096,7 +2430,7 @@ function biayaFormHtml(V){
         ${V.bxRecurring ? `
         <div>${lbl('Jatuh Tempo (1-31)')}<input id="i-bxdueday" value="${esc(V.bxDueDay)}" ${I(V.onBxDueDay)} inputmode="numeric" placeholder="cnt. 25" style="${inputStyle(48)}"></div>
         ` : `
-        <div>${lbl('Tanggal')}<input id="i-bxdate" value="${esc(V.bxDate)}" ${I(V.onBxDate)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div>${lbl('Tanggal')}${customDatePickerHtml('bxdate', V.bxDate, (v) => setState({ bxDate: v }), 'Pilih tanggal...')}</div>
         `}
       </div>
     </div>
@@ -2184,6 +2518,7 @@ function html(V){
     ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
+    ${customOverlayHtml(V)}
   </div>`;
 }
 
@@ -2229,6 +2564,24 @@ function render(){
   if(S.k_scanMode && kScanStream){
     const kv = document.getElementById('k-scan-video');
     if(kv && kv.srcObject !== kScanStream){ kv.srcObject = kScanStream; kv.play().catch(()=>{}); }
+  }
+  // custom portal panel positioning & auto-flip
+  const activePicker = S.activeDD || S.activeDP || S.activeMP;
+  if (activePicker) {
+    const trig = document.getElementById('custom-trig-' + activePicker.id);
+    const panel = document.getElementById('custom-portal-panel');
+    if (trig && panel) {
+      const r = trig.getBoundingClientRect();
+      const pHeight = panel.offsetHeight || 240;
+      const spaceBelow = window.innerHeight - r.bottom;
+      const flipUp = spaceBelow < pHeight + 12 && r.top > pHeight + 12;
+      
+      panel.style.position = 'fixed';
+      panel.style.zIndex = '99999';
+      panel.style.width = r.width + 'px';
+      panel.style.left = r.left + 'px';
+      panel.style.top = flipUp ? Math.max(8, r.top - pHeight - 6) + 'px' : (r.bottom + 6) + 'px';
+    }
   }
   // dropdown anggota di-portal ke root (lihat memberDdPanelHtml) → posisinya tak bisa
   // dihitung CSS murni (tak nested di bawah tombolnya lagi), diukur manual dari trigger

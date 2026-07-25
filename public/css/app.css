@@ -63,6 +63,12 @@ body { margin:0; background:#0a0a0c; }
 .ss-root .fx-press:active{ transform:translateY(1px); }
 .ss-root .fx-card:active{ transform:scale(.98); border-color:var(--gold) !important; }
 .ss-root .fx-hover:hover{ background:var(--hover) !important; }
+/* aksi teks redup di footer panel (mis. "Kosongkan"/"Pilih semua") — beda dari
+   emas yang dipakai utk state terpilih, supaya tak tertukar makna */
+.ss-root .fx-textdim{ color:var(--muted); transition:color .15s ease; }
+.ss-root .fx-textdim:hover:not(:disabled){ color:var(--text2); }
+.ss-root .fx-textdim:disabled{ color:var(--dim2) !important; cursor:not-allowed; }
+.ss-root .fx-textdim:focus-visible{ outline:none; box-shadow:0 0 0 1px rgba(212,175,55,.5); }
 .ss-modecard:hover{ border-color:var(--gold) !important; background:linear-gradient(150deg,var(--goldtint2),var(--surface3)) !important; transform:translateY(-3px); box-shadow:var(--modeshadow),0 0 0 1px var(--gold); }
 .ss-modecard:active{ transform:translateY(-1px) scale(.99); border-color:var(--gold) !important; background:linear-gradient(150deg,var(--goldtint2),var(--surface3)) !important; box-shadow:var(--modeshadow),0 0 0 1.5px var(--gold); }
 .ss-logout-pill:hover{ background:var(--dangertint) !important; border-color:var(--dangerborder) !important; color:var(--danger) !important; }

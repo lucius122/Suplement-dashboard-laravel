@@ -120,8 +120,12 @@
       step('chip filter aktif tampil (2 chip)', chipBtns().length === 2);
       click(chipBtns()[0]);
       step('hapus 1 chip → tersisa 1 terpilih', await waitFor(() => nRows() === 1 && has('1 dari ' + nAll + ' pegawai')));
-      click(btn('Kosongkan pilihan'));
+      click(btn('Kosongkan'));
       step('kosongkan pilihan → daftar penuh lagi', await waitFor(() => nRows() === nAll && !has('terpilih')));
+      click(btn('Pilih semua'));
+      step('pilih semua → seluruh pegawai terpilih', await waitFor(() => has(nAll + ' dari ' + nAll + ' pegawai')));
+      click(btn('Kosongkan'));
+      step('kosongkan lagi setelah pilih semua → daftar penuh', await waitFor(() => nRows() === nAll && !has('terpilih')));
       // dua tombol "Tahunan" di layar Laporan: [0] = Tren Omset (chip periode), terakhir = kartu per-anggota
       const tahunanBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tahunan');
       click(tahunanBtns()[tahunanBtns().length - 1]);

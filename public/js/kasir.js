@@ -164,9 +164,7 @@
         +'<div style="position:absolute;bottom:12px;left:0;right:0;z-index:2;text-align:center;font-size:12.5px;color:rgba(255,255,255,.8);text-shadow:0 1px 6px rgba(0,0,0,.8);">Arahkan kamera ke barcode produk</div>';
 
     var devSel = devices.length>1
-      ? '<select '+SS.I(function(e){ SS.changeScanDeviceKasir(e.target.value); })+' style="height:34px;max-width:130px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:11px;padding:0 7px;outline:none;">'
-        +devices.map(function(d,i){ return '<option value="'+SS.esc(d.deviceId)+'"'+(d.deviceId===devId?' selected':'')+'>'+SS.esc(d.label||'Kamera '+(i+1))+'</option>'; }).join('')
-        +'</select>'
+      ? '<div style="width:130px;">'+SS.customSelectHtml('k_scandevice', devId, devices.map(function(d,i){ return { value: d.deviceId, label: d.label||('Kamera '+(i+1)) }; }), function(v){ SS.changeScanDeviceKasir(v); }, 'Pilih kamera...', 34)+'</div>'
       : '';
 
     var cnt=_count();
@@ -337,7 +335,7 @@
     var mp=method==='marketplace'?'<div style="background:var(--infotint);border:1px solid rgba(122,167,255,.3);border-radius:12px;padding:14px;margin-bottom:14px;"><div style="font-size:13.5px;font-weight:600;color:var(--info);">Pembayaran via Marketplace</div><div style="font-size:12px;color:var(--muted);margin-top:5px;line-height:1.55;">Transaksi non-tunai. Tidak ada kembalian.</div></div>':'';
     var tempo=method==='tempo'
       ?_fld('Nama Pelanggan *','<input id="k-tname" value="'+SS.esc(SS.S.k_tname||'')+'" '+SS.I(function(e){ SS.setState({k_tname:e.target.value}); })+' placeholder="Nama pembeli\u2026" style="width:100%;height:44px;border-radius:11px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 13px;outline:none;">')
-        +_fld('Tanggal Jatuh Tempo *','<input id="k-tdue" value="'+SS.esc(SS.S.k_tdue||'')+'" '+SS.I(function(e){ SS.setState({k_tdue:e.target.value}); })+' type="date" style="width:100%;height:44px;border-radius:11px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 13px;outline:none;">')
+        +_fld('Tanggal Jatuh Tempo *', SS.customDatePickerHtml('k_tdue', SS.S.k_tdue, function(v){ SS.setState({k_tdue: v}); }, 'Pilih tanggal...', 44))
         +'<div style="background:var(--warntint);border:1px solid rgba(232,161,58,.3);border-radius:11px;padding:12px 14px;margin-top:-5px;margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;">'+SS.ic('tempo','var(--warn)',14)+'<span style="font-size:12.5px;color:var(--warn);line-height:1.5;">Piutang senilai <b>'+SS.rp(total)+'</b> akan dibuat otomatis.</span></div>'
       :'';
     return '<div class="scrl" style="height:100%;overflow-y:auto;padding:14px 16px 30px;">'
