@@ -86,6 +86,9 @@ let S = {
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
   scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
   uPassShow:false,                                          // tombol mata password form user
+  // scan kasir (stream terpisah dari scan admin supaya tidak konflik state)
+  k_scanMode:null, k_scanMsg:'', k_scanDevices:[], k_scanDeviceId:null, k_scanManual:'',
+  k_restockId:null, k_restockQty:'',                        // modal restock setelah scan masuk
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
   // catatan: state khusus kasir (cart, pay, cash, dst.) DIHAPUS — dikelola sendiri
@@ -287,21 +290,31 @@ async function deletePromo(p){
 let scanStream = null, scanTimer = null, scanDetector = null, zxingReader = null;
 let lastScanCode = '', lastScanAt = 0;
 
+async function decodeFrameFromVideo(videoElement, reader) {
+  if (!videoElement || videoElement.videoWidth === 0) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = videoElement.videoWidth;
+  canvas.height = videoElement.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+  return await reader.decodeFromCanvas(canvas);
+}
+
 async function startScan(target){
-  // dari form tambah produk: sembunyikan formnya dulu supaya modal scan terlihat;
-  // stopScan() mengembalikannya (isian form tetap utuh di state)
   setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'', prodForm: target==='pbarcode' ? false : S.prodForm });
-  const hasNative = 'BarcodeDetector' in window;
   const hasZxing = 'ZXing' in window;
+  const hasNative = 'BarcodeDetector' in window;
   if(!hasNative && !hasZxing){
     setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
   }
-  if(hasNative) scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
-  else zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
+  if(hasZxing) {
+    zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
+  } else {
+    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128'] });
+  }
   try {
-    await openScanDevice(S.scanDeviceId); // deviceId tersimpan dari sesi sebelumnya (mis. kamera DroidCam) dicoba lagi duluan
-    // label kamera baru kebaca browser SETELAH izin diberikan — makanya enumerate di sini, bukan sebelum getUserMedia
+    await openScanDevice(S.scanDeviceId);
     const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
     setState({ scanDevices: devices });
   } catch(e){
@@ -316,11 +329,10 @@ async function openScanDevice(deviceId){
       video: deviceId ? { deviceId:{ exact:deviceId } } : { facingMode:'environment' },
     });
   } catch(e){
-    // deviceId tersimpan sudah tak valid (kamera dicabut/DroidCam mati) → jatuh ke kamera default
     scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
   }
   setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
-  render(); // pasang stream ke <video> (dilakukan di akhir render)
+  render();
   scanTimer = setInterval(scanTick, 280);
 }
 async function changeScanDevice(deviceId){
@@ -337,27 +349,25 @@ async function scanTick(){
       const codes = await scanDetector.detect(v);
       if(codes.length) handleScanResult(codes[0].rawValue);
     } else if(zxingReader){
-      // decode 1 frame; ZXing lempar exception kalau belum ketemu kode di frame ini (wajar, coba lagi tick berikutnya)
-      const result = await zxingReader.decodeFromVideoElement('scan-video');
+      const result = await decodeFrameFromVideo(v, zxingReader);
       if(result) handleScanResult(result.getText());
     }
-  } catch(e){ /* frame gagal dideteksi — coba lagi tick berikutnya */ }
+  } catch(e){ /* frame gagal dideteksi */ }
   finally { scanBusy = false; }
 }
 function handleScanResult(code){
   code = String(code||'').trim();
   if(!code) return;
   const now = Date.now();
-  if(code === lastScanCode && now - lastScanAt < 2500) return; // jangan spam kode yang sama
+  if(code === lastScanCode && now - lastScanAt < 2500) return;
   lastScanCode = code; lastScanAt = now;
 
-  if(S.scanTarget === 'pbarcode'){ // dari form tambah produk → isi kolom barcode
+  if(S.scanTarget === 'pbarcode'){
     stopScan();
     setState({ pBarcode: code });
     flash('Barcode terbaca: '+code);
     return;
   }
-  // dari layar stok → cari produknya, buka modal tambah stok
   const p = DB.products.find(x => x.barcode === code);
   if(!p){ flash('Barcode '+code+' tidak cocok dengan produk mana pun'); return; }
   stopScan();
@@ -367,8 +377,87 @@ function handleScanResult(code){
 function stopScan(){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
-  // kembali ke form tambah produk bila scan dibuka dari sana (dibatalkan ataupun sukses)
+  if(zxingReader) zxingReader.reset();
   setState({ scan:false, prodForm: S.scanTarget==='pbarcode' ? true : S.prodForm });
+}
+
+/* ---- scan kamera KASIR (stream & state terpisah dari scan admin) ---- */
+let kScanStream = null, kScanTimer = null, kScanDetector = null, kZxingReader = null;
+let kLastCode = '', kLastAt = 0, kScanBusy = false;
+
+async function startScanKasir(mode) {
+  setState({ k_scanMode: mode, k_scanMsg: '', k_scanManual: '' });
+  const hasZxing  = 'ZXing' in window;
+  const hasNative = 'BarcodeDetector' in window;
+  if (!hasNative && !hasZxing) {
+    setState({ k_scanMsg: 'Browser tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
+    return;
+  }
+  if (hasZxing) {
+    kZxingReader = kZxingReader || new ZXing.BrowserMultiFormatReader();
+  } else {
+    kScanDetector = kScanDetector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
+  }
+  try {
+    await openKScanDevice(S.k_scanDeviceId);
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    setState({ k_scanDevices: devices });
+  } catch(e) {
+    setState({ k_scanMsg: 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.' });
+  }
+}
+async function openKScanDevice(deviceId) {
+  clearInterval(kScanTimer); kScanTimer = null;
+  if (kScanStream) kScanStream.getTracks().forEach(t => t.stop());
+  try {
+    kScanStream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' },
+    });
+  } catch(e) {
+    kScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  }
+  setState({ k_scanDeviceId: kScanStream.getVideoTracks()[0]?.getSettings().deviceId || null, k_scanMsg: '' });
+  render();
+  kScanTimer = setInterval(kScanTick, 280);
+}
+async function changeScanDeviceKasir(deviceId) {
+  try { await openKScanDevice(deviceId); }
+  catch(e) { setState({ k_scanMsg: 'Gagal ganti kamera — coba pilih lagi.' }); }
+}
+async function kScanTick() {
+  const v = document.getElementById('k-scan-video');
+  if (!v || v.readyState < 2 || kScanBusy) return;
+  kScanBusy = true;
+  try {
+    if (kScanDetector) {
+      const codes = await kScanDetector.detect(v);
+      if (codes.length) handleScanKasir(codes[0].rawValue);
+    } else if (kZxingReader) {
+      const result = await decodeFrameFromVideo(v, kZxingReader);
+      if (result) handleScanKasir(result.getText());
+    }
+  } catch(e) { /* frame tidak terbaca */ }
+  finally { kScanBusy = false; }
+}
+function handleScanKasir(code) {
+  code = String(code || '').trim();
+  if (!code) return;
+  const now = Date.now();
+  if (code === kLastCode && now - kLastAt < 2500) return;
+  kLastCode = code; kLastAt = now;
+  document.dispatchEvent(new CustomEvent('k-scan-result', { detail: { code, mode: S.k_scanMode } }));
+}
+function stopScanKasir() {
+  clearInterval(kScanTimer); kScanTimer = null;
+  if (kScanStream) { kScanStream.getTracks().forEach(t => t.stop()); kScanStream = null; }
+  if (kZxingReader) kZxingReader.reset();
+  setState({ k_scanMode: null });
+}
+async function saveRestockKasir(productId, qty) {
+  await api('/api/products/' + productId + '/restock', 'POST', { qty });
+  const boot = await api('/api/bootstrap');
+  Object.assign(DB, boot);
+  setState({ k_restockId: null, k_restockQty: '' });
 }
 
 async function saveRestock(){
@@ -1788,10 +1877,15 @@ function render(){
   }
   lastScreen = S.screen;
   prevOpen = openNow;
-  // modal scan: innerHTML membuat <video> baru tiap render → pasang ulang stream kamera
+  // modal scan admin: innerHTML membuat <video> baru tiap render → pasang ulang stream kamera
   if(S.scan && scanStream){
     const v = document.getElementById('scan-video');
     if(v && v.srcObject !== scanStream){ v.srcObject = scanStream; v.play().catch(()=>{}); }
+  }
+  // modal scan kasir: pasang stream ke elemen k-scan-video
+  if(S.k_scanMode && kScanStream){
+    const kv = document.getElementById('k-scan-video');
+    if(kv && kv.srcObject !== kScanStream){ kv.srcObject = kScanStream; kv.play().catch(()=>{}); }
   }
   if(fid){
     const el = document.getElementById(fid);
@@ -1853,6 +1947,8 @@ function cashierPlaceholder(V){
 window.SS = {
   get S(){ return S; }, get DB(){ return DB; }, get USER(){ return USER; },
   setState, api, flash, render, A, I, esc, rp, rpShort, ic, go, logout,
+  // scan kamera kasir (stream terpisah dari scan admin)
+  startScanKasir, stopScanKasir, changeScanDeviceKasir, saveRestockKasir,
   registerCashier(fn){ cashierRenderer = fn; if(S.screen==='cashier') render(); },
 };
 
