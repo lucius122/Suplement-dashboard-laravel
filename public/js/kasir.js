@@ -16,7 +16,15 @@
     return d;
   }
   async function _refreshDB() {
-    try { var b = await SS.api('/api/bootstrap'); Object.assign(SS.DB, b); SS.DB.byUser={}; } catch(e){}
+    // Bootstrap + dashboard sekaligus (bukan cuma bootstrap) supaya kalau admin
+    // "Buka Kasir" lalu balik ke Dashboard/Laporan, angkanya sudah ikut jualan ini —
+    // byUser/memberItems/yearly dibuang (bukan direfetch) sama seperti loadAll() di
+    // app.js, layar terkait sudah tahu cara memuat ulang sendiri saat cache kosong.
+    try {
+      var r = await Promise.all([SS.api('/api/bootstrap'), SS.api('/api/dashboard')]);
+      Object.assign(SS.DB, r[0], {dash:r[1]});
+      SS.DB.byUser={}; SS.DB.memberItems={}; SS.DB.yearly={};
+    } catch(e){}
   }
 
   /* ---- data ---- */

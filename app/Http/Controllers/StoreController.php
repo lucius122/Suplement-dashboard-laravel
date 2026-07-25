@@ -290,17 +290,21 @@ class StoreController extends Controller
         DB::transaction(function () use ($data, $user) {
             $branchId = $user->branch_id;
 
-            // Validasi stok semua item sebelum memotong (all-or-nothing)
+            // Kunci baris produk & pakai harga ASLI dari DB (bukan dari client) — satu
+            // query per item, dipakai ulang utk cek stok & potong stok, supaya tidak ada
+            // celah check-then-act antar transaksi yang terjadi hampir bersamaan.
+            $products = [];
             foreach ($data['items'] as $item) {
-                $prod = Product::find($item['product_id']);
+                $prod = Product::where('id', $item['product_id'])->lockForUpdate()->first();
                 abort_if(
                     ! $prod || $prod->stok < $item['qty'],
                     422,
                     'Stok produk "'.($prod->name ?? '?').'" tidak mencukupi (tersisa '.($prod->stok ?? 0).').',
                 );
+                $products[$item['product_id']] = $prod;
             }
 
-            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['price']);
+            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $products[$i['product_id']]->harga);
             $cash  = ($data['method'] === 'tunai') ? ($data['cash'] ?? null) : null;
 
             $trx = Transaction::create([
@@ -313,16 +317,18 @@ class StoreController extends Controller
             ]);
 
             foreach ($data['items'] as $item) {
+                $prod = $products[$item['product_id']];
+
                 TransactionItem::create([
                     'transaction_id' => $trx->id,
                     'product_id'     => $item['product_id'],
                     'branch_id'      => $branchId,
                     'qty'            => $item['qty'],
-                    'price'          => $item['price'],
+                    'price'          => $prod->harga,
                 ]);
 
-                // Potong stok — sudah divalidasi di atas, tidak akan negatif
-                Product::where('id', $item['product_id'])->decrement('stok', $item['qty']);
+                // Potong stok pakai baris yang sama yang sudah dikunci & divalidasi di atas
+                $prod->decrement('stok', $item['qty']);
             }
 
             // Pembayaran tempo → buat piutang otomatis
@@ -370,7 +376,7 @@ class StoreController extends Controller
             'harga'    => ['required', 'integer', 'min:0'],
             'modal'    => ['nullable', 'integer', 'min:0'],
             'stok'     => ['nullable', 'integer', 'min:0'],
-            'kategori' => ['nullable', 'string', 'max:40'],
+            'kategori' => ['required', 'string', 'max:40', Rule::exists('categories', 'name')],
             'branch'   => [$isAdmin ? 'required' : 'nullable', 'string', 'exists:branches,name'],
             'barcode'  => ['nullable', 'string', 'max:60'],
             'exp'      => ['nullable', 'regex:/^\d{4}-\d{2}$/'],  // format YYYY-MM
@@ -401,7 +407,7 @@ class StoreController extends Controller
             'varian'    => trim($data['varian'] ?? '') ?: '-',
             'harga'     => (int) $data['harga'],
             'modal'     => (int) ($data['modal'] ?? 0),
-            'kategori'  => $data['kategori'] ?? 'Protein',
+            'kategori'  => $data['kategori'],
             'stok'      => (int) ($data['stok'] ?? 0),
             'branch_id' => $branchId,
             'barcode'   => $data['barcode'] ?: null,
