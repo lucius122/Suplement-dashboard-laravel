@@ -319,7 +319,10 @@ async function deleteExpense(x){
 /* ---- scan barcode (EAN-13 dsb.) via kamera ----
    BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
    Chrome/Edge desktop Windows/Mac/Linux, walau versi terbaru) → fallback ZXing
-   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau nativlet zxingMultiReader = null;
+   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau native tak ada. */
+let scanStream = null, scanTimer = null, scanDetector = null;
+let lastScanCode = '', lastScanAt = 0;
+let zxingMultiReader = null;
 let zxingHints = null;
 
 function getZxingReader() {
@@ -563,8 +566,7 @@ async function kScanTick() {
     if (!codeFound) {
       codeFound = decodeFrameFromVideo(v);
     }
-    if (codeFound) handleScanKasir(codeFound);
-  } catch(e) { /* frame tidak terbaca */ }h(e) { /* frame tidak terbaca */ }
+    } catch(e) { /* frame tidak terbaca */ }
   finally { kScanBusy = false; }
 }
 function handleScanKasir(code) {
