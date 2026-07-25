@@ -1520,7 +1520,7 @@ function secLaporanHtml(V){
           <div class="scrl" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
             ${V.memberRows.map(m => `
               <div style="border:1px solid var(--border2);border-radius:13px;background:var(--surface2);padding:12px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;display:grid;grid-template-columns:48px 1fr 140px 120px;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;border-radius:9px;">
+                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;display:grid;grid-template-columns:48px 1fr 140px 120px;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;color:var(--text);border-radius:9px;">
                   <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${m.rank<=3?'var(--gold)':'var(--muted)'};">${m.rank}</span>
                   <span style="min-width:0;">
                     <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${chevronIc(m.open)} ${esc(m.name)}</span>
@@ -1528,7 +1528,7 @@ function secLaporanHtml(V){
                     ${m.hasSales ? `<span style="display:block;height:6px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px;max-width:280px;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : ''}
                   </span>
                   <span style="text-align:right;font-size:12.5px;color:var(--text2);">${m.trxLong}</span>
-                  <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${m.totalText}</span>
+                  <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span>
                 </button>
                 ${m.open ? memberDetailHtml(m) : ''}
               </div>`).join('')}
@@ -1536,12 +1536,12 @@ function secLaporanHtml(V){
           <div class="scrl" style="max-height:60dvh;overflow-y:auto;display:flex;flex-direction:column;gap:9px;">
             ${V.memberRows.map(m => `
               <div style="border:1px solid var(--border2);border-radius:14px;background:var(--surface2);padding:13px 14px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;border-radius:10px;">
+                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;color:var(--text);border-radius:10px;">
                   <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);">${chevronIc(m.open)} <span style="color:${m.rank<=3?'var(--gold)':'var(--muted)'};font-family:'Saira',sans-serif;font-weight:800;">#${m.rank}</span> ${esc(m.name)}</span>
                   <span style="display:block;font-size:11px;color:var(--text2);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
                   <span style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;">
                     ${m.hasSales ? `<span style="height:7px;border-radius:4px;background:var(--chip);overflow:hidden;flex:1;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : `<span style="flex:1;"></span>`}
-                    <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
+                    <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
                   </span>
                 </button>
                 ${m.open ? memberDetailHtml(m) : ''}
@@ -1549,7 +1549,7 @@ function secLaporanHtml(V){
           </div>`}
         <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border2);margin-top:16px;padding-top:14px;gap:10px;flex-wrap:wrap;">
           <span style="font-size:13px;color:var(--muted);">Total (${V.memberFooterLabel}) · ${V.uPeriod}</span>
-          <span style="white-space:nowrap;"><span style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;">${V.memberTotalText}</span> <span style="color:var(--muted);font-size:12px;">· ${V.memberTrxText}</span></span>
+          <span style="white-space:nowrap;"><span style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;color:var(--text);">${V.memberTotalText}</span> <span style="color:var(--muted);font-size:12px;">· ${V.memberTrxText}</span></span>
         </div>`}
       </div>
     </div>
