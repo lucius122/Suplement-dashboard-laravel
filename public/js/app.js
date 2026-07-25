@@ -363,12 +363,30 @@ function decodeFrameFromVideo(videoElement) {
     ctx.drawImage(videoElement, 0, 0, w, h);
 
     const source = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
-    const result = reader.decode(bitmap, zxingHints);
-    if (result && result.getText()) return result.getText();
-  } catch(e) {
-    // NotFoundException terjadi biasa tiap frame kalau belum pas di barcode
-  }
+
+    // Pass 1: HybridBinarizer (Standard)
+    try {
+      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
+      const res = reader.decode(bitmap, zxingHints);
+      if (res && res.getText()) return res.getText();
+    } catch(e){}
+
+    // Pass 2: GlobalHistogramBinarizer (Sangat ampuh untuk foto layar HP, Moiré pattern & kilauan cahaya)
+    try {
+      const bitmap = new ZXing.BinaryBitmap(new ZXing.GlobalHistogramBinarizer(source));
+      const res = reader.decode(bitmap, zxingHints);
+      if (res && res.getText()) return res.getText();
+    } catch(e){}
+
+    // Pass 3: Inverted Luminance (Jika background foto gelap / layar HP mode malam)
+    try {
+      const invSource = new ZXing.InvertedLuminanceSource(source);
+      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(invSource));
+      const res = reader.decode(bitmap, zxingHints);
+      if (res && res.getText()) return res.getText();
+    } catch(e){}
+
+  } catch(e) {}
   return null;
 }
 
