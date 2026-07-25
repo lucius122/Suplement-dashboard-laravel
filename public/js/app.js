@@ -1010,8 +1010,9 @@ const svgScanIc = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill
 const svgSearchIc = (w,left) => `<svg style="position:absolute;left:${left}px;" width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="#6c6c74" stroke-width="1.8"></circle><path d="M16 16l4 4" stroke="#6c6c74" stroke-width="1.8" stroke-linecap="round"></path></svg>`;
 const svgCartIc = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><path d="M3 4h2l2.4 12.2a1 1 0 0 0 1 .8h8.7a1 1 0 0 0 1-.8L21 8H6" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="9" cy="20" r="1.4" fill="#D4AF37"></circle><circle cx="18" cy="20" r="1.4" fill="#D4AF37"></circle></svg>`;
 const themeBtn = (V, box, icon, rad) => `<button ${A(V.toggleTheme)} style="width:${box}px;height:${box}px;border-radius:${rad}px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;">${V.isLight ? svgSun(icon) : svgMoon(icon)}</button>`;
-const lbl = t => `<label style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;">${t}</label>`;
-const inputStyle = h => `width:100%;height:${h}px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;`;
+const lbl = t => `<label style="display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:'Saira',sans-serif;font-weight:600;margin-bottom:6px;">${t}</label>`;
+const inputStyle = h => `width:100%;box-sizing:border-box;height:${h}px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 12px;outline:none;font-family:'Hanken Grotesk',sans-serif;`;
+
 
 /* ================= LOGIN ================= */
 function loginHtml(V){
@@ -1823,34 +1824,45 @@ function scanHtml(V){
 }
 
 function branchFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeBranchForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('branchForm')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Tambah Cabang</h3>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('branchForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Tambah Cabang</h3>
+      <button ${A(V.closeBranchForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Data penjualan mulai tercatat setelah ada transaksi.</p>
-    ${lbl('Nama Cabang')}
-    <input id="i-newbranch" value="${esc(V.newBranch)}" ${I(V.onNewBranch)} placeholder="cnt. Yogyakarta" style="width:100%;height:48px;margin-top:7px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+    <div>${lbl('Nama Cabang')}
+      <input id="i-newbranch" value="${esc(V.newBranch)}" ${I(V.onNewBranch)} placeholder="cnt. Yogyakarta" style="${inputStyle(48)}">
+    </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closeBranchForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveBranch)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN CABANG</button>
+      <button ${A(V.closeBranchForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveBranch)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN CABANG</button>
     </div>
   </div>`;
 }
 
 function userFormHtml(V){
-  const selTile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:120px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${esc(t.label)}</button>`;
+  const pad = V.isMobile ? '20px 16px' : '26px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(520px, calc(100vw - 32px))';
+  const selTile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${esc(t.label)}</button>`;
   return `
   <div ${A(V.closeUserForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(520px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">${V.userFormIsEdit ? 'Edit User' : 'Tambah User Baru'}</h3>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:${pad};${V.popModal('userForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:${V.isMobile ? '19px' : '21px'};margin:0;">${V.userFormIsEdit ? 'Edit User' : 'Tambah User Baru'}</h3>
+      <button ${A(V.closeUserForm)} title="tutup" style="width:32px;height:32px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
+    </div>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Lengkap')}<input id="i-uname-new" value="${esc(V.uName)}" ${I(V.onUName)} placeholder="Nama user" style="${inputStyle(48)}"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Username')}<input id="i-uuname-new" value="${esc(V.uUname)}" ${I(V.onUUname)} placeholder="username" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl(V.userFormIsEdit ? 'Password Baru (opsional)' : 'Password')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Username')}<input id="i-uuname-new" value="${esc(V.uUname)}" ${I(V.onUUname)} placeholder="username" style="${inputStyle(48)}"></div>
+        <div>${lbl(V.userFormIsEdit ? 'Password Baru' : 'Password')}
           <div style="position:relative;">
-            <input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="${V.uPassShow ? 'text' : 'password'}" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}padding-right:46px;">
-            <button ${A(V.toggleUPass)} title="lihat-password" style="position:absolute;right:7px;bottom:7px;width:34px;height:34px;border-radius:9px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+            <input id="i-upass-new" value="${esc(V.uPass)}" ${I(V.onUPass)} type="${V.uPassShow ? 'text' : 'password'}" placeholder="${V.userFormIsEdit ? 'kosongkan jika tetap' : '••••••'}" style="${inputStyle(48)}padding-right:44px;">
+            <button ${A(V.toggleUPass)} title="lihat-password" style="position:absolute;right:6px;bottom:6px;width:36px;height:36px;border-radius:9px;background:none;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;">
               ${V.uPassShow
                 ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#D4AF37" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#D4AF37" stroke-width="1.7"></circle></svg>`
                 : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z" stroke="#6c6c74" stroke-width="1.7"></path><circle cx="12" cy="12" r="2.6" stroke="#6c6c74" stroke-width="1.7"></circle><path d="M4 4l16 16" stroke="#6c6c74" stroke-width="1.7" stroke-linecap="round"></path></svg>`}
@@ -1859,58 +1871,68 @@ function userFormHtml(V){
         </div>
       </div>
       <div>${lbl('Role')}
-        <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">${V.uRoleTiles.map(selTile).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:2px;flex-wrap:wrap;">${V.uRoleTiles.map(selTile).join('')}</div>
       </div>
       <div>${lbl('Cabang')}
-        <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap;">${V.uCabangTiles.map(selTile).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:2px;flex-wrap:wrap;">${V.uCabangTiles.map(selTile).join('')}</div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;margin-top:22px;">
-      <button ${A(V.closeUserForm)} style="flex:none;width:110px;height:50px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveUser)} style="flex:1;height:50px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;letter-spacing:.04em;cursor:pointer;">SIMPAN USER</button>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button ${A(V.closeUserForm)} style="flex:none;width:95px;height:48px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveUser)} style="flex:1;height:48px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN USER</button>
     </div>
   </div>`;
 }
 
 function prodFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '26px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(560px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeProdForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(560px, calc(100vw - 32px));max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:26px;${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin:0 0 18px;">Tambah Produk</h3>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:${pad};${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:${V.isMobile ? '19px' : '21px'};margin:0;">Tambah Produk</h3>
+      <button ${A(V.closeProdForm)} title="tutup" style="width:32px;height:32px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
+    </div>
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-pkat" ${I(V.onPKat)} style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.pKat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
+        <div>${lbl('Kategori')}<select id="i-pkat" ${I(V.onPKat)} style="${inputStyle(48)}cursor:pointer;">${V.kCatOptions.map(c => `<option value="${esc(c)}"${c===V.pKat?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Harga Jual')}<input id="i-pharga" value="${esc(V.pHargaText)}" ${I(V.onPHarga)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Harga Jual')}<input id="i-pharga" value="${esc(V.pHargaText)}" ${I(V.onPHarga)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
+        <div>${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
       </div>
-      <div style="font-size:12.5px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:10px 13px;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-pbranch" ${I(V.onPBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.pBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
-        <div style="flex:1;min-width:140px;">${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
+      <div style="font-size:12px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:9px 12px;line-height:1.4;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Cabang')}<select id="i-pbranch" ${I(V.onPBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.pBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <div>${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Barcode')}
-          <div style="display:flex;gap:8px;margin-top:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:48px;flex:none;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(20)}</button></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Barcode')}
+          <div style="display:flex;gap:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;min-width:0;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 10px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:42px;flex:none;height:48px;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(18)}</button></div>
         </div>
-        <div style="flex:1;min-width:140px;">${lbl('Kedaluwarsa')}<input id="i-pexp" value="${esc(V.pExp)}" ${I(V.onPExp)} type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div>${lbl('Kedaluwarsa')}<input id="i-pexp" value="${esc(V.pExp)}" ${I(V.onPExp)} type="month" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;margin-top:22px;">
-      <button ${A(V.closeProdForm)} style="flex:none;width:110px;height:50px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveProd)} style="flex:1;height:50px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;letter-spacing:.04em;cursor:pointer;">SIMPAN PRODUK</button>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button ${A(V.closeProdForm)} style="flex:none;width:95px;height:48px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveProd)} style="flex:1;height:48px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN PRODUK</button>
     </div>
   </div>`;
 }
 
 function catFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('catForm')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Kelola Kategori</h3>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('catForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Kategori</h3>
+      <button ${A(V.closeCatForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk filter stok dan pengelompokan produk. Kategori yang masih dipakai produk tidak bisa dihapus.</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
       ${V.catRows.map(c => `
@@ -1919,98 +1941,120 @@ function catFormHtml(V){
           <button ${A(c.onDelete)} title="hapus-${esc(c.name)}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:16px;line-height:1;cursor:pointer;">×</button>
         </div>`).join('')}
     </div>
-    ${lbl('Kategori Baru')}
-    <div style="display:flex;gap:8px;margin-top:7px;">
-      <input id="i-newcat" value="${esc(V.newCat)}" ${I(V.onNewCat)} placeholder="cnt. Vitamin" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
-      <button ${A(V.saveCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">TAMBAH</button>
+    <div>${lbl('Kategori Baru')}
+      <div style="display:flex;gap:8px;">
+        <input id="i-newcat" value="${esc(V.newCat)}" ${I(V.onNewCat)} placeholder="cnt. Vitamin" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+        <button ${A(V.saveCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">TAMBAH</button>
+      </div>
     </div>
     <button ${A(V.closeCatForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
 function poFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closePoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('poForm')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Buat Purchase Order</h3>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('poForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Buat Purchase Order</h3>
+      <button ${A(V.closePoForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Catat hutang pembelian ke supplier. Tandai lunas dari daftar saat sudah dibayar.</p>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>${lbl('Nama Supplier')}<input id="i-poname" value="${esc(V.poName)}" ${I(V.onPoName)} placeholder="cnt. PT Nutrisi Prima" style="${inputStyle(48)}"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-poamount" value="${esc(V.poAmountText)}" ${I(V.onPoAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
-        <div style="flex:1;min-width:140px;">${lbl('Jatuh Tempo')}<input id="i-podue" value="${esc(V.poDue)}" ${I(V.onPoDue)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Nominal')}<input id="i-poamount" value="${esc(V.poAmountText)}" ${I(V.onPoAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+        <div>${lbl('Jatuh Tempo')}<input id="i-podue" value="${esc(V.poDue)}" ${I(V.onPoDue)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closePoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveSupplier)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PO</button>
+      <button ${A(V.closePoForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveSupplier)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN PO</button>
     </div>
   </div>`;
 }
 
 function biayaFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(460px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeBiayaForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('biayaForm')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 6px;">Catat Biaya</h3>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('biayaForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Catat Biaya</h3>
+      <button ${A(V.closeBiayaForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Sewa/listrik yang rutin tiap bulan, atau printilan sekali ini (plastik, sampah, dll).</p>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>${lbl('Jenis')}
-        <div style="display:flex;gap:10px;margin-top:7px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:2px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Kategori')}<select id="i-bxcategory" ${I(V.onBxCategory)} style="${inputStyle(48)}cursor:pointer;">${V.bxCategoryOptions.map(c => `<option value="${esc(c)}"${c===V.bxCategory?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
-        <div style="flex:1;min-width:140px;">${lbl('Cabang')}<select id="i-bxbranch" ${I(V.onBxBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.bxBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Kategori')}<select id="i-bxcategory" ${I(V.onBxCategory)} style="${inputStyle(48)}cursor:pointer;">${V.bxCategoryOptions.map(c => `<option value="${esc(c)}"${c===V.bxCategory?' selected':''}>${esc(c)}</option>`).join('')}</select></div>
+        <div>${lbl('Cabang')}<select id="i-bxbranch" ${I(V.onBxBranch)} style="${inputStyle(48)}cursor:pointer;">${V.prodBranchOptions.map(b => `<option value="${esc(b)}"${b===V.bxBranch?' selected':''}>${esc(b)}</option>`).join('')}</select></div>
       </div>
       <div>${lbl('Keterangan (opsional)')}<input id="i-bxnote" value="${esc(V.bxNote)}" ${I(V.onBxNote)} placeholder="cnt. plastik kresek habis" style="${inputStyle(48)}"></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">${lbl('Nominal')}<input id="i-bxamount" value="${esc(V.bxAmountText)}" ${I(V.onBxAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>${lbl('Nominal')}<input id="i-bxamount" value="${esc(V.bxAmountText)}" ${I(V.onBxAmount)} inputmode="numeric" placeholder="Rp0" style="${inputStyle(48)}"></div>
         ${V.bxRecurring ? `
-        <div style="flex:1;min-width:140px;">${lbl('Tanggal Jatuh Tempo (1-31)')}<input id="i-bxdueday" value="${esc(V.bxDueDay)}" ${I(V.onBxDueDay)} inputmode="numeric" placeholder="cnt. 25" style="${inputStyle(48)}"></div>
+        <div>${lbl('Jatuh Tempo (1-31)')}<input id="i-bxdueday" value="${esc(V.bxDueDay)}" ${I(V.onBxDueDay)} inputmode="numeric" placeholder="cnt. 25" style="${inputStyle(48)}"></div>
         ` : `
-        <div style="flex:1;min-width:140px;">${lbl('Tanggal')}<input id="i-bxdate" value="${esc(V.bxDate)}" ${I(V.onBxDate)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
+        <div>${lbl('Tanggal')}<input id="i-bxdate" value="${esc(V.bxDate)}" ${I(V.onBxDate)} type="date" style="${inputStyle(48)}color-scheme:${V.isLight?'light':'dark'};"></div>
         `}
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closeBiayaForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveExpense)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN BIAYA</button>
+      <button ${A(V.closeBiayaForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveExpense)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN BIAYA</button>
     </div>
   </div>`;
 }
 
 function promoFormHtml(V){
-  const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:110px;height:46px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(460px, calc(100vw - 32px))';
+  const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
   return `
   <div ${A(V.closePromoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(460px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('promoForm')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 16px;">Buat Promo / Bundle</h3>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('promoForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Buat Promo / Bundle</h3>
+      <button ${A(V.closePromoForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>${lbl('Nama Promo')}<input id="i-prname" value="${esc(V.prName)}" ${I(V.onPrName)} placeholder="cnt. Paket Pemula" style="${inputStyle(48)}"></div>
       <div>${lbl('Deskripsi')}<input id="i-prdesc" value="${esc(V.prDesc)}" ${I(V.onPrDesc)} placeholder="cnt. Whey 2lb + Shaker Bottle" style="${inputStyle(48)}"></div>
       <div>${lbl('Tipe')}
-        <div style="display:flex;gap:10px;margin-top:7px;">${V.prTypeTiles.map(tile).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:2px;">${V.prTypeTiles.map(tile).join('')}</div>
       </div>
       <div>${lbl('Nilai')}<input id="i-prvalue" value="${esc(V.prValue)}" ${I(V.onPrValue)} placeholder="cnt. 15% atau Hemat Rp40.000" style="${inputStyle(48)}"></div>
     </div>
     <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closePromoForm)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.savePromo)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">SIMPAN PROMO</button>
+      <button ${A(V.closePromoForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.savePromo)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN PROMO</button>
     </div>
   </div>`;
 }
 
 function restockHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(400px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeRestock)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;${V.popModal('restock')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0 0 4px;">Tambah Stok</h3>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('restock')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Tambah Stok</h3>
+      <button ${A(V.closeRestock)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 14px;">${esc(V.restockName)} · stok sekarang <b style="color:var(--text2);">${V.restockStokText}</b></p>
-    ${lbl('Jumlah Masuk')}
-    <input id="i-restockqty" value="${esc(V.restockQty)}" ${I(V.onRestockQty)} inputmode="numeric" placeholder="0" style="width:100%;height:52px;margin-top:6px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:21px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;">
+    <div>${lbl('Jumlah Masuk')}
+      <input id="i-restockqty" value="${esc(V.restockQty)}" ${I(V.onRestockQty)} inputmode="numeric" placeholder="0" style="width:100%;box-sizing:border-box;height:52px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:21px;font-family:'Saira',sans-serif;font-weight:700;padding:0 14px;outline:none;">
+    </div>
     <div style="display:flex;gap:10px;margin-top:16px;">
-      <button ${A(V.closeRestock)} style="flex:none;width:104px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveRestock)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;">TAMBAHKAN</button>
+      <button ${A(V.closeRestock)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveRestock)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">TAMBAHKAN</button>
     </div>
   </div>`;
 }

@@ -71,3 +71,24 @@ body { margin:0; background:#0a0a0c; }
 /* image-slot (photo upload) */
 .ss-root .img-slot{ cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--dim2); overflow:hidden; border-radius:14px; }
 .ss-root .img-slot img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+/* Fix mobile select and date/month input rendering */
+.ss-root input,
+.ss-root select,
+.ss-root button {
+  box-sizing: border-box;
+}
+.ss-root input[type="date"],
+.ss-root input[type="month"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--input);
+  color: var(--text);
+  line-height: 48px;
+  min-height: 48px;
+}
+.ss-root select {
+  background-color: var(--input);
+  color: var(--text);
+}
+
