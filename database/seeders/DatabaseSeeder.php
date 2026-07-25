@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Branch;
 use App\Models\Category;
+use App\Models\Expense;
 use App\Models\Product;
 use App\Models\Promo;
 use App\Models\Receivable;
@@ -113,6 +114,27 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($promos as $p) {
             Promo::create(['name' => $p[0], 'desc' => $p[1], 'type' => $p[2], 'value' => $p[3]]);
+        }
+
+        // ---- biaya operasional (rutin bulanan + printilan tak terduga) ----
+        $expenses = [
+            // category, note, amount, is_recurring, due_day, branch, dayOffset(khusus non-rutin)
+            ['Sewa', null, 3500000, true, 25, $pleburan, 0],
+            ['Listrik', null, 850000, true, 20, $pleburan, 0],
+            ['Sewa', null, 2800000, true, 25, $surakarta, 0],
+            ['Plastik', 'Kresek habis, beli 5 pack', 45000, false, null, $pleburan, -2],
+            ['Sampah', 'Iuran sampah RT', 60000, false, null, $pleburan, -5],
+            ['Listrik', null, 620000, true, 20, $surakarta, 0],
+        ];
+        foreach ($expenses as [$category, $note, $amount, $recurring, $dueDay, $branch, $dayOffset]) {
+            $date = $recurring
+                ? now()->startOfMonth()->addDays(min($dueDay, now()->daysInMonth) - 1)
+                : now()->addDays($dayOffset);
+            Expense::create([
+                'branch_id' => $branch->id, 'category' => $category, 'note' => $note,
+                'amount' => $amount, 'is_recurring' => $recurring, 'due_day' => $dueDay,
+                'date' => $date->toDateString(), 'paid' => ! $recurring,
+            ]);
         }
 
         // ---- transactions: 6 minggu terakhir per cabang, jadi sumber angka dashboard/laporan ----
