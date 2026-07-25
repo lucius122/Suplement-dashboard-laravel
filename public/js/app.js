@@ -416,13 +416,17 @@ async function startScan(target){
 async function openScanDevice(deviceId){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream) scanStream.getTracks().forEach(t => t.stop());
+  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
   const vOpts = deviceId
     ? { deviceId:{ exact:deviceId } }
-    : { facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } };
+    : isMobile
+      ? { facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }
+      : { width:{ ideal:1280 }, height:{ ideal:720 } };
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
   } catch(e){
-    scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
+    // Fallback universal untuk semua kamera laptop/webcam PC
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: true });
   }
   try {
     const track = scanStream.getVideoTracks()[0];
@@ -516,13 +520,16 @@ async function startScanKasir(mode) {
 async function openKScanDevice(deviceId) {
   clearInterval(kScanTimer); kScanTimer = null;
   if (kScanStream) kScanStream.getTracks().forEach(t => t.stop());
+  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
   const vOpts = deviceId
     ? { deviceId: { exact: deviceId } }
-    : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } };
+    : isMobile
+      ? { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } };
   try {
     kScanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
   } catch(e) {
-    kScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    kScanStream = await navigator.mediaDevices.getUserMedia({ video: true });
   }
   try {
     const track = kScanStream.getVideoTracks()[0];
