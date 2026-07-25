@@ -107,8 +107,9 @@ const TODAY = new Date();
 const rp = n => 'Rp' + Math.round(n).toLocaleString('id-ID');
 const rpShort = n => { if(n>=1000000) return 'Rp'+(n/1000000).toFixed(n%1000000?1:0)+'jt'; if(n>=1000) return 'Rp'+Math.round(n/1000)+'rb'; return 'Rp'+n; };
 const MON = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-const fmtDate = s => { if(!s||s==='-') return '-'; const d=new Date(s); return d.getDate()+' '+MON[d.getMonth()]; };
-const daysLeft = s => Math.round((new Date(s+'T00:00:00') - new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate())) / 86400000);
+const FULL_MON = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const fmtDate = s => { if(!s||s==='-') return '-'; const parts=String(s).split('T')[0].split('-'); if(parts.length===3){ const y=parseInt(parts[0]),m=parseInt(parts[1])-1,d=parseInt(parts[2]); if(!isNaN(y)&&!isNaN(m)&&!isNaN(d)&&MON[m]) return d+' '+MON[m]+(y!==TODAY.getFullYear()?' '+y:''); } const date=new Date(s); return isNaN(date.getTime())?String(s):date.getDate()+' '+MON[date.getMonth()]; };
+const daysLeft = s => { if(!s) return 0; const parts=String(s).split('T')[0].split('-').map(Number); if(parts.length<3||!parts[0]||!parts[1]||!parts[2]) return 0; const target=new Date(parts[0],parts[1]-1,parts[2]); const today=new Date(TODAY.getFullYear(),TODAY.getMonth(),TODAY.getDate()); return Math.round((target-today)/86400000); };
 const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function ic(name, color, size){
@@ -1263,8 +1264,13 @@ function customDatePickerHtml(id, value, onChange, placeholder = 'Pilih tanggal.
   const isOpen = S.activeDP && S.activeDP.id === id;
   let dispText = placeholder;
   if (value && value.includes('-')) {
-    const [y, m, d] = value.split('-');
-    dispText = d + '/' + m + '/' + y;
+    const parts = value.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d) && MON[m]) {
+        dispText = d + ' ' + MON[m] + ' ' + y;
+      }
+    }
   }
   
   return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomDP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
@@ -1277,9 +1283,12 @@ function customMonthPickerHtml(id, value, onChange, placeholder = 'Pilih bulan..
   const isOpen = S.activeMP && S.activeMP.id === id;
   let dispText = placeholder;
   if (value && value.includes('-')) {
-    const [y, m] = value.split('-');
-    const mIdx = parseInt(m) - 1;
-    dispText = (MON[mIdx] || m) + ' ' + y;
+    const parts = value.split('-');
+    const y = parts[0];
+    const mIdx = parseInt(parts[1]) - 1;
+    if (!isNaN(mIdx) && FULL_MON[mIdx]) {
+      dispText = FULL_MON[mIdx] + ' ' + y;
+    }
   }
   
   return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomMP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
@@ -1303,7 +1312,7 @@ function customDDPanelHtml(V) {
   const filtered = dd.options.filter(o => !dd.search || o.label.toLowerCase().includes(dd.search.toLowerCase()));
   
   return `
-  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:8px;box-shadow:0 24px 60px rgba(0,0,0,0.85);max-height:240px;overflow-y:auto;color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:8px;box-shadow:0 24px 60px rgba(0,0,0,0.85);max-height:240px;overflow-y:auto;color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;box-sizing:border-box;">
     ${searchNeed ? `
     <div style="padding:4px 4px 8px;">
       <input id="i-ddsearch" value="${esc(dd.search)}" ${I((e) => setState({ activeDD: { ...S.activeDD, search: e.target.value, activeIdx: 0 } }))} placeholder="Cari..." style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:12px;padding:0 10px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
@@ -1338,7 +1347,7 @@ function customDPPanelHtml(V) {
   if (!dp) return '';
   const y = dp.viewYear;
   const m = dp.viewMonth;
-  const monthName = MON[m] + ' ' + y;
+  const monthName = (FULL_MON[m] || MON[m]) + ' ' + y;
   
   const firstDay = new Date(y, m, 1).getDay();
   const totalDays = new Date(y, m + 1, 0).getDate();
@@ -1356,11 +1365,11 @@ function customDPPanelHtml(V) {
     const isSelected = dStr === curValStr;
     const isToday = dStr === todayStr;
     
-    let style = 'height:32px;border-radius:8px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    let style = 'height:32px;border-radius:8px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s ease;';
     if (isSelected) {
       style += 'background:#D4AF37;color:#0A0A0C;font-weight:800;box-shadow:0 0 10px rgba(212,175,55,0.4);';
     } else if (isToday) {
-      style += 'background:rgba(212,175,55,0.12);color:#D4AF37;outline:1px solid rgba(212,175,55,0.4);';
+      style += 'background:rgba(212,175,55,0.14);color:#D4AF37;border:1px solid rgba(212,175,55,0.4);';
     } else {
       style += 'background:transparent;color:var(--text);';
     }
@@ -1369,17 +1378,21 @@ function customDPPanelHtml(V) {
   }
 
   return `
-  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:14px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <button ${A(() => navCustomDPMonth(-1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">‹</button>
-      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:#D4AF37;">${monthName}</span>
-      <button ${A(() => navCustomDPMonth(1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">›</button>
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:16px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;width:300px;box-sizing:border-box;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <button ${A(() => navCustomDPMonth(-1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">‹</button>
+      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:#D4AF37;">${monthName}</span>
+      <button ${A(() => navCustomDPMonth(1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">›</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;margin-bottom:6px;font-size:10px;font-family:'Saira',sans-serif;font-weight:700;color:var(--muted);text-transform:uppercase;">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;margin-bottom:8px;font-size:10.5px;font-family:'Saira',sans-serif;font-weight:700;color:var(--muted);text-transform:uppercase;">
       ${dayNames.map(n => `<span>${n}</span>`).join('')}
     </div>
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">
       ${daysHtml.join('')}
+    </div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;">
+      <button ${A(() => selectCustomDPDate(todayStr))} style="background:none;border:none;color:#D4AF37;font-size:12px;font-weight:700;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Pilih Hari Ini (${fmtDate(todayStr)})</button>
+      <button ${A(() => closeCustomPickers())} style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
     </div>
   </div>`;
 }
@@ -1390,13 +1403,11 @@ function customMPPanelHtml(V) {
   const y = mp.viewYear;
   let curValStr = mp.value;
   
-  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-  
-  let monthsHtml = monthNames.map((mName, idx) => {
+  let monthsHtml = FULL_MON.map((mName, idx) => {
     const mStr = y + '-' + String(idx + 1).padStart(2, '0');
     const isSelected = mStr === curValStr;
     
-    let style = 'height:40px;border-radius:10px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    let style = 'height:40px;border-radius:10px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s ease;';
     if (isSelected) {
       style += 'background:#D4AF37;color:#0A0A0C;font-weight:800;box-shadow:0 0 10px rgba(212,175,55,0.4);';
     } else {
@@ -1406,14 +1417,17 @@ function customMPPanelHtml(V) {
   });
 
   return `
-  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:14px;padding:14px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <button ${A(() => navCustomMPYear(-1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">‹</button>
-      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:#D4AF37;">${y}</span>
-      <button ${A(() => navCustomMPYear(1))} style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;">›</button>
+  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:16px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;width:280px;box-sizing:border-box;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <button ${A(() => navCustomMPYear(-1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">‹</button>
+      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:16px;color:#D4AF37;">${y}</span>
+      <button ${A(() => navCustomMPYear(1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">›</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
       ${monthsHtml.join('')}
+    </div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);text-align:right;">
+      <button ${A(() => closeCustomPickers())} style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
     </div>
   </div>`;
 }
@@ -2572,14 +2586,25 @@ function render(){
     const panel = document.getElementById('custom-portal-panel');
     if (trig && panel) {
       const r = trig.getBoundingClientRect();
-      const pHeight = panel.offsetHeight || 240;
+      const pHeight = panel.offsetHeight || 280;
       const spaceBelow = window.innerHeight - r.bottom;
       const flipUp = spaceBelow < pHeight + 12 && r.top > pHeight + 12;
-      
+
+      let targetWidth = r.width;
+      if (S.activeDP) targetWidth = Math.max(300, r.width);
+      else if (S.activeMP) targetWidth = Math.max(280, r.width);
+      else if (S.activeDD) targetWidth = Math.max(160, r.width);
+
+      let panelLeft = r.left;
+      if (panelLeft + targetWidth > window.innerWidth - 12) {
+        panelLeft = Math.max(12, window.innerWidth - targetWidth - 12);
+      }
+
       panel.style.position = 'fixed';
       panel.style.zIndex = '99999';
-      panel.style.width = r.width + 'px';
-      panel.style.left = r.left + 'px';
+      panel.style.boxSizing = 'border-box';
+      panel.style.width = targetWidth + 'px';
+      panel.style.left = panelLeft + 'px';
       panel.style.top = flipUp ? Math.max(8, r.top - pHeight - 6) + 'px' : (r.bottom + 6) + 'px';
     }
   }
