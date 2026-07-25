@@ -319,16 +319,57 @@ async function deleteExpense(x){
 /* ---- scan barcode (EAN-13 dsb.) via kamera ----
    BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
    Chrome/Edge desktop Windows/Mac/Linux, walau versi terbaru) → fallback ZXing
-   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau native tak ada. */
-let scanStream = null, scanTimer = null, scanDetector = null, zxingReader = null;
-let lastScanCode = '', lastScanAt = 0;
+   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau nativlet zxingMultiReader = null;
+let zxingHints = null;
 
-async function decodeFrameFromVideo(videoElement, reader) {
+function getZxingReader() {
+  if (!zxingMultiReader && 'ZXing' in window) {
+    zxingHints = new Map();
+    zxingHints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    if (ZXing.BarcodeFormat) {
+      zxingHints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.QR_CODE,
+      ]);
+    }
+    zxingMultiReader = new ZXing.MultiFormatReader();
+    zxingMultiReader.setHints(zxingHints);
+  }
+  return zxingMultiReader;
+}
+
+function decodeFrameFromVideo(videoElement) {
   if (!videoElement || videoElement.videoWidth === 0 || videoElement.readyState < 2) return null;
-  // ZXing BrowserMultiFormatReader.decode() menerima HTMLVideoElement secara langsung,
-  // membaca videoWidth/videoHeight, dan menggambar frame ke canvas internal secara presisi.
-  try { return reader.decode(videoElement); }
-  catch(e) { return null; }  // NotFoundException → frame belum ada barcode
+  const reader = getZxingReader();
+  if (!reader) return null;
+
+  try {
+    let w = videoElement.videoWidth;
+    let h = videoElement.videoHeight;
+    // Rescale jika resolusi kamera HP terlalu tinggi (>800px) agar binarisasi & decoding super cepat
+    if (w > 800) {
+      h = Math.round((h * 800) / w);
+      w = 800;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(videoElement, 0, 0, w, h);
+
+    const source = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
+    const result = reader.decode(bitmap, zxingHints);
+    if (result && result.getText()) return result.getText();
+  } catch(e) {
+    // NotFoundException terjadi biasa tiap frame kalau belum pas di barcode
+  }
+  return null;
 }
 
 async function startScan(target){
@@ -339,12 +380,8 @@ async function startScan(target){
     setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
     return;
   }
-  // Inisialisasi detector yang tersedia (Native + ZXing Fallback)
   if(hasNative) {
     scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
-  }
-  if(hasZxing) {
-    zxingReader = zxingReader || new ZXing.BrowserMultiFormatReader();
   }
   try {
     await openScanDevice(S.scanDeviceId);
@@ -361,16 +398,26 @@ async function startScan(target){
 async function openScanDevice(deviceId){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream) scanStream.getTracks().forEach(t => t.stop());
+  const vOpts = deviceId
+    ? { deviceId:{ exact:deviceId } }
+    : { facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } };
   try {
-    scanStream = await navigator.mediaDevices.getUserMedia({
-      video: deviceId ? { deviceId:{ exact:deviceId } } : { facingMode:'environment' },
-    });
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
   } catch(e){
     scanStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'environment' } });
   }
+  try {
+    const track = scanStream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps.focusMode && caps.focusMode.includes('continuous')) {
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      }
+    }
+  } catch(e){}
   setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
   render();
-  scanTimer = setInterval(scanTick, 280);
+  scanTimer = setInterval(scanTick, 200);
 }
 async function changeScanDevice(deviceId){
   try { await openScanDevice(deviceId); }
@@ -389,9 +436,8 @@ async function scanTick(){
         if(codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
       } catch(e){}
     }
-    if(!codeFound && zxingReader){
-      const result = await decodeFrameFromVideo(v, zxingReader);
-      if(result) codeFound = result.getText();
+    if(!codeFound){
+      codeFound = decodeFrameFromVideo(v);
     }
     if(codeFound) handleScanResult(codeFound);
   } catch(e){ /* frame gagal dideteksi */ }
@@ -419,12 +465,11 @@ function handleScanResult(code){
 function stopScan(){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
-  if(zxingReader) zxingReader.reset();
   setState({ scan:false, prodForm: S.scanTarget==='pbarcode' ? true : S.prodForm });
 }
 
 /* ---- scan kamera KASIR (stream & state terpisah dari scan admin) ---- */
-let kScanStream = null, kScanTimer = null, kScanDetector = null, kZxingReader = null;
+let kScanStream = null, kScanTimer = null, kScanDetector = null;
 let kLastCode = '', kLastAt = 0, kScanBusy = false;
 
 async function startScanKasir(mode) {
@@ -437,9 +482,6 @@ async function startScanKasir(mode) {
   }
   if (hasNative) {
     kScanDetector = kScanDetector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
-  }
-  if (hasZxing) {
-    kZxingReader = kZxingReader || new ZXing.BrowserMultiFormatReader();
   }
   try {
     await openKScanDevice(S.k_scanDeviceId);
@@ -456,16 +498,26 @@ async function startScanKasir(mode) {
 async function openKScanDevice(deviceId) {
   clearInterval(kScanTimer); kScanTimer = null;
   if (kScanStream) kScanStream.getTracks().forEach(t => t.stop());
+  const vOpts = deviceId
+    ? { deviceId: { exact: deviceId } }
+    : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } };
   try {
-    kScanStream = await navigator.mediaDevices.getUserMedia({
-      video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' },
-    });
+    kScanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
   } catch(e) {
     kScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
   }
+  try {
+    const track = kScanStream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      const caps = track.getCapabilities();
+      if (caps.focusMode && caps.focusMode.includes('continuous')) {
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      }
+    }
+  } catch(e){}
   setState({ k_scanDeviceId: kScanStream.getVideoTracks()[0]?.getSettings().deviceId || null, k_scanMsg: '' });
   render();
-  kScanTimer = setInterval(kScanTick, 280);
+  kScanTimer = setInterval(kScanTick, 200);
 }
 async function changeScanDeviceKasir(deviceId) {
   try { await openKScanDevice(deviceId); }
@@ -483,12 +535,11 @@ async function kScanTick() {
         if (codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
       } catch(e){}
     }
-    if (!codeFound && kZxingReader) {
-      const result = await decodeFrameFromVideo(v, kZxingReader);
-      if (result) codeFound = result.getText();
+    if (!codeFound) {
+      codeFound = decodeFrameFromVideo(v);
     }
     if (codeFound) handleScanKasir(codeFound);
-  } catch(e) { /* frame tidak terbaca */ }
+  } catch(e) { /* frame tidak terbaca */ }h(e) { /* frame tidak terbaca */ }
   finally { kScanBusy = false; }
 }
 function handleScanKasir(code) {
