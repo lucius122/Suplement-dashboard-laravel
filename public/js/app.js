@@ -324,6 +324,8 @@ let scanStream = null, scanTimer = null, scanDetector = null;
 let lastScanCode = '', lastScanAt = 0;
 let zxingMultiReader = null;
 let zxingHints = null;
+let scanCanvas = null;
+let scanCtx = null;
 
 function getZxingReader() {
   if (!zxingMultiReader && 'ZXing' in window) {
@@ -354,37 +356,33 @@ function decodeFrameFromVideo(videoElement) {
   try {
     let w = videoElement.videoWidth;
     let h = videoElement.videoHeight;
-    // Rescale jika resolusi kamera HP terlalu tinggi (>800px) agar binarisasi & decoding super cepat
-    if (w > 800) {
-      h = Math.round((h * 800) / w);
-      w = 800;
+    // Downscale ke 600px max width agar binarisasi & ekstraksi piksel super cepat (~15ms)
+    if (w > 600) {
+      h = Math.round((h * 600) / w);
+      w = 600;
     }
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(videoElement, 0, 0, w, h);
+    if (!scanCanvas) {
+      scanCanvas = document.createElement('canvas');
+      scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    if (scanCanvas.width !== w || scanCanvas.height !== h) {
+      scanCanvas.width = w;
+      scanCanvas.height = h;
+    }
+    scanCtx.drawImage(videoElement, 0, 0, w, h);
 
-    const source = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+    const source = new ZXing.HTMLCanvasElementLuminanceSource(scanCanvas);
 
-    // Pass 1: HybridBinarizer (Standard)
+    // Pass 1: HybridBinarizer (Paling cepat untuk mayoritas frame)
     try {
       const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
       const res = reader.decode(bitmap, zxingHints);
       if (res && res.getText()) return res.getText();
     } catch(e){}
 
-    // Pass 2: GlobalHistogramBinarizer (Sangat ampuh untuk foto layar HP, Moiré pattern & kilauan cahaya)
+    // Pass 2: GlobalHistogramBinarizer (Fallback ampuh untuk layar HP, Moiré pattern & kilauan cahaya)
     try {
       const bitmap = new ZXing.BinaryBitmap(new ZXing.GlobalHistogramBinarizer(source));
-      const res = reader.decode(bitmap, zxingHints);
-      if (res && res.getText()) return res.getText();
-    } catch(e){}
-
-    // Pass 3: Inverted Luminance (Jika background foto gelap / layar HP mode malam)
-    try {
-      const invSource = new ZXing.InvertedLuminanceSource(source);
-      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(invSource));
       const res = reader.decode(bitmap, zxingHints);
       if (res && res.getText()) return res.getText();
     } catch(e){}
@@ -442,7 +440,7 @@ async function openScanDevice(deviceId){
   } catch(e){}
   setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
   render();
-  scanTimer = setInterval(scanTick, 200);
+  scanTimer = setInterval(scanTick, 120);
 }
 async function changeScanDevice(deviceId){
   try { await openScanDevice(deviceId); }
@@ -545,7 +543,7 @@ async function openKScanDevice(deviceId) {
   } catch(e){}
   setState({ k_scanDeviceId: kScanStream.getVideoTracks()[0]?.getSettings().deviceId || null, k_scanMsg: '' });
   render();
-  kScanTimer = setInterval(kScanTick, 200);
+  kScanTimer = setInterval(kScanTick, 120);
 }
 async function changeScanDeviceKasir(deviceId) {
   try { await openKScanDevice(deviceId); }
