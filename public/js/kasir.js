@@ -126,7 +126,7 @@
       fd.append('branch',branch); fd.append('custom','1');
       if(_photoFile) fd.append('photo',_photoFile);
       await _apiForm('/api/products',fd); await _refreshDB(); _photoFile=null;
-      SS.setState({k_saving:false,k_addProd:false,k_pname:'',k_pvarian:'',k_pharga:'',k_pmodal:'',k_pkat:'Protein',k_pbarcode:'',k_pstok:'',k_pexp:''});
+      SS.setState({k_saving:false,k_addProd:false,k_pdetail:false,k_pname:'',k_pvarian:'',k_pharga:'',k_pmodal:'',k_pkat:'Protein',k_pbarcode:'',k_pstok:'',k_pexp:''});
       SS.flash('Produk ditambahkan \u2713');
     } catch(err){ SS.setState({k_saving:false}); SS.flash(err.message); }
   }
@@ -357,31 +357,45 @@
   /* ---- TAMBAH PRODUK ---- */
   function _addProdHtml(){
     var saving=!!SS.S.k_saving, cats=SS.DB.categories.map(function(c){ return c.name; }), selCat=SS.S.k_pkat||(cats[0]||'Protein');
-    return '<div class="scrl" style="height:100%;overflow-y:auto;padding:14px 16px 40px;">'
-      +'<button '+SS.A(function(){ _photoFile=null; SS.setState({k_addProd:false}); })+' style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12.5px;padding:0;margin-bottom:14px;">&larr; Kembali</button>'
-      +'<div style="font-family:\'Saira\',sans-serif;font-weight:800;font-size:17px;margin-bottom:16px;">Tambah Produk Baru</div>'
-      +_fld('Nama Produk *',_inp('k-pname',SS.S.k_pname,function(e){ SS.setState({k_pname:e.target.value}); },'placeholder="Nama produk..."'))
-      +_fld('Varian / Rasa',_inp('k-pvarian',SS.S.k_pvarian,function(e){ SS.setState({k_pvarian:e.target.value}); },'placeholder="Cokelat, Vanila..."'))
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
-        +_fld('Harga Jual (Rp) *',_inp('k-pharga',SS.S.k_pharga,function(e){ SS.setState({k_pharga:e.target.value}); },'placeholder="Rp..." type="text" inputmode="numeric"'))
+    var detail=!!SS.S.k_pdetail;
+    // Field opsional — hanya dirender saat accordion terbuka
+    var detailInner=detail
+      ? _fld('Varian / Rasa',_inp('k-pvarian',SS.S.k_pvarian,function(e){ SS.setState({k_pvarian:e.target.value}); },'placeholder="Cokelat, Vanila..."'))
         +_fld('Modal (Rp)',_inp('k-pmodal',SS.S.k_pmodal,function(e){ SS.setState({k_pmodal:e.target.value}); },'placeholder="Rp..." type="text" inputmode="numeric"'))
-      +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
-        +_fld('Stok Awal',_inp('k-pstok',SS.S.k_pstok,function(e){ SS.setState({k_pstok:e.target.value}); },'placeholder="0" type="text" inputmode="numeric"'))
+        +_fld('Barcode',_inp('k-pbarcode',SS.S.k_pbarcode,function(e){ SS.setState({k_pbarcode:e.target.value}); },'placeholder="Nomor barcode..."'))
         +_fld('Exp (YYYY-MM)',_inp('k-pexp',SS.S.k_pexp,function(e){ SS.setState({k_pexp:e.target.value}); },'placeholder="2026-12"'))
-      +'</div>'
-      +_fld('Barcode',_inp('k-pbarcode',SS.S.k_pbarcode,function(e){ SS.setState({k_pbarcode:e.target.value}); },'placeholder="Nomor barcode..."'))
-      +'<div style="margin-bottom:13px;">'+_lbl('Kategori')
+        +'<div style="margin-bottom:13px;">'+_lbl('Foto Produk')
+          +'<label for="k-photo-input" style="display:flex;align-items:center;gap:10px;border:1.5px dashed var(--border);border-radius:12px;padding:13px 14px;cursor:pointer;background:var(--surface2);">'
+            +'<div style="width:34px;height:34px;border-radius:9px;background:var(--goldtint);display:flex;align-items:center;justify-content:center;flex:none;">'+SS.ic('produk','var(--gold)',17)+'</div>'
+            +'<span id="k-photo-label" style="font-size:12.5px;color:var(--dim);">'+(_photoFile?SS.esc(_photoFile.name):'Ketuk untuk pilih foto produk')+'</span>'
+          +'</label>'
+          +'<input id="k-photo-input" type="file" accept="image/jpeg,image/png,image/webp" style="display:none;">'
+        +'</div>'
+      : '';
+    return '<div class="scrl" style="height:100%;overflow-y:auto;padding:14px 16px 40px;">'
+      +'<button '+SS.A(function(){ _photoFile=null; SS.setState({k_addProd:false,k_pdetail:false}); })+' style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12.5px;padding:0;margin-bottom:14px;">&larr; Kembali</button>'
+      +'<div style="font-family:\'Saira\',sans-serif;font-weight:800;font-size:17px;margin-bottom:16px;">Tambah Produk Baru</div>'
+      // ── 4 field utama (selalu terlihat) ────────────────────────
+      +_fld('Nama Produk *',_inp('k-pname',SS.S.k_pname,function(e){ SS.setState({k_pname:e.target.value}); },'placeholder="Nama produk..."'))
+      +'<div style="margin-bottom:13px;">'+_lbl('Kategori *')
         +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+cats.map(function(c){ return _chip(selCat===c,c,function(){ SS.setState({k_pkat:c}); }); }).join('')+'</div>'
       +'</div>'
-      +'<div style="margin-bottom:16px;">'+_lbl('Foto Produk')
-        +'<label for="k-photo-input" style="display:flex;align-items:center;gap:10px;border:1.5px dashed var(--border);border-radius:12px;padding:13px 14px;cursor:pointer;background:var(--surface2);">'
-          +'<div style="width:34px;height:34px;border-radius:9px;background:var(--goldtint);display:flex;align-items:center;justify-content:center;flex:none;">'+SS.ic('produk','var(--gold)',17)+'</div>'
-          +'<span id="k-photo-label" style="font-size:12.5px;color:var(--dim);">'+(_photoFile?SS.esc(_photoFile.name):'Ketuk untuk pilih foto produk')+'</span>'
-        +'</label>'
-        +'<input id="k-photo-input" type="file" accept="image/jpeg,image/png,image/webp" style="display:none;">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+        +_fld('Harga Jual (Rp) *',_inp('k-pharga',SS.S.k_pharga,function(e){ SS.setState({k_pharga:e.target.value}); },'placeholder="Rp..." type="text" inputmode="numeric"'))
+        +_fld('Stok Awal *',_inp('k-pstok',SS.S.k_pstok,function(e){ SS.setState({k_pstok:e.target.value}); },'placeholder="0" type="text" inputmode="numeric"'))
       +'</div>'
-      +'<button '+SS.A(_saveProd)+(saving?' disabled':'')+' class="fx-press" style="width:100%;height:50px;border-radius:13px;border:none;background:'+(saving?'var(--border)':'linear-gradient(180deg,var(--goldhi),var(--gold))')+';color:'+(saving?'var(--muted)':'#161208')+';font-weight:800;font-size:14.5px;cursor:'+(saving?'not-allowed':'pointer')+';">'+(saving?'Menyimpan...':'SIMPAN PRODUK')+'</button>'
+      // ── Accordion: Detail Tambahan (collapsed by default) ───────
+      +'<div style="margin-bottom:14px;border:1px solid var(--border);border-radius:12px;overflow:hidden;">'
+        +'<button '+SS.A(function(){ SS.setState({k_pdetail:!SS.S.k_pdetail}); })+' style="width:100%;height:44px;background:var(--surface2);border:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:8px;">'
+          +'<span style="font-size:12.5px;font-weight:700;color:var(--text2);">Detail Tambahan <span style="font-weight:400;color:var(--muted);">(Opsional)</span></span>'
+          +'<span style="font-size:13px;color:var(--muted);display:inline-block;transform:rotate('+(detail?'90':'0')+'deg);transition:transform .2s ease;">&#9654;</span>'
+        +'</button>'
+        +(detail?'<div style="padding:14px 14px 4px;border-top:1px solid var(--divider);">'+detailInner+'</div>':'')
+      +'</div>'
+      // ── Tombol simpan ────────────────────────────────────────────
+      +'<button '+SS.A(_saveProd)+(saving?' disabled':'')+' class="fx-press" style="width:100%;height:50px;border-radius:13px;border:none;background:'+(saving?'var(--border)':'linear-gradient(180deg,var(--goldhi),var(--gold))')+';color:'+(saving?'var(--muted)':'#161208')+';font-weight:800;font-size:14.5px;cursor:'+(saving?'not-allowed':'pointer')+';">'
+        +(saving?'Menyimpan...':'SIMPAN PRODUK')
+      +'</button>'
     +'</div>';
   }
 
@@ -400,7 +414,7 @@
         +(count>0&&V.isMobile?'<div style="background:var(--gold);color:#161208;border-radius:20px;padding:2px 9px;font-family:\'Saira\',sans-serif;font-weight:800;font-size:12px;">'+count+'</div>':'')
         +'<button '+SS.A(function(){ SS.startScanKasir('in'); })+' title="Scan Masuk: tambah stok" style="height:34px;padding:0 10px;border-radius:9px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;">'+icoG+'<span>&#9660; Masuk</span></button>'
         +'<button '+SS.A(function(){ SS.startScanKasir('out'); })+' title="Scan Keluar: ke keranjang" style="height:34px;padding:0 10px;border-radius:9px;background:rgba(80,200,100,.08);border:1px solid rgba(80,200,100,.35);color:var(--ok,#50c864);font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;">'+icoGr+'<span>&#9650; Keluar</span></button>'
-        +'<button '+SS.A(function(){ _photoFile=null; SS.setState({k_addProd:true,k_pname:'',k_pvarian:'',k_pharga:'',k_pmodal:'',k_pkat:(SS.DB.categories[0]||{}).name||'Protein',k_pbarcode:'',k_pstok:'',k_pexp:''}); })+' style="height:34px;padding:0 11px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">+ Produk</button>'
+        +'<button '+SS.A(function(){ _photoFile=null; SS.setState({k_addProd:true,k_pdetail:false,k_pname:'',k_pvarian:'',k_pharga:'',k_pmodal:'',k_pkat:(SS.DB.categories[0]||{}).name||'Protein',k_pbarcode:'',k_pstok:'',k_pexp:''}); })+' style="height:34px;padding:0 11px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">+ Produk</button>'
         +(V.isAdmin?'<button '+SS.A(V.goModeScreen)+' style="height:34px;padding:0 11px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;white-space:nowrap;">Mode</button>':'')
         +'<button '+SS.A(V.openSettings)+' style="height:34px;width:34px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;">'+SS.ic('settings','var(--muted2)',16)+'</button>'
         +'<button '+SS.A(V.logout)+' style="height:34px;padding:0 11px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;">Keluar</button>'
