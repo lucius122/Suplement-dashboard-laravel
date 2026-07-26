@@ -99,12 +99,3 @@ body { margin:0; background:#0a0a0c; }
   color: var(--text);
 }
 
-.btn-mark-paid:hover {
-  background: rgba(212, 175, 55, 0.2) !important;
-  border-color: rgba(212, 175, 55, 0.5) !important;
-}
-.btn-mark-paid:focus-visible {
-  outline: 2px solid rgba(212, 175, 55, 0.6) !important;
-  outline-offset: 1px;
-}
-
