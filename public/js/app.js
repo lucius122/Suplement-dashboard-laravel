@@ -940,7 +940,10 @@ function renderVals(){
   const uPeriodWider = { Mingguan:'Bulanan', Bulanan:'Tahunan' }[S.uPeriod];
 
   const supplierTotal=DB.suppliers.filter(s=>!s.paid).reduce((a,s)=>a+s.amount,0);
-  const supplierRows=DB.suppliers.map(s=>{
+  const supplierRows=DB.suppliers
+    .slice()
+    .sort((a, b) => (a.paid ? 1 : 0) - (b.paid ? 1 : 0) || daysLeft(a.due) - daysLeft(b.due) || b.id - a.id)
+    .map(s=>{
     const dl=daysLeft(s.due); const over=dl<0 && !s.paid;
     const statusText = s.paid?'Lunas':(over?'Terlambat':'Belum Lunas');
     const color = s.paid?'var(--ok)':(over?'var(--danger)':'var(--warn)');
