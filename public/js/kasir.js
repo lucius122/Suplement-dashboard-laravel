@@ -111,6 +111,7 @@
   }
 
   /* ---- save product ---- */
+
   function _setupPhotoInput(){ var el=document.getElementById('k-photo-input'); if(!el||el._kb) return; el._kb=true; el.addEventListener('change',function(){ _photoFile=(el.files&&el.files[0])?el.files[0]:null; var l=document.getElementById('k-photo-label'); if(l) l.textContent=_photoFile?_photoFile.name:'Ketuk untuk pilih foto'; }); }
   async function _saveProd() {
     var name=(SS.S.k_pname||'').trim(), harga=parseInt((SS.S.k_pharga||'').replace(/\D/g,''),10);

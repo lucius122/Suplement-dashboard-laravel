@@ -564,7 +564,8 @@ async function kScanTick() {
     if (!codeFound) {
       codeFound = decodeFrameFromVideo(v);
     }
-    } catch(e) { /* frame tidak terbaca */ }
+    if (codeFound) handleScanKasir(codeFound);
+  } catch(e) { /* frame tidak terbaca */ }
   finally { kScanBusy = false; }
 }
 function handleScanKasir(code) {
