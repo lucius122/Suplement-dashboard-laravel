@@ -1218,6 +1218,38 @@
         </button>`;
     }
 
+    function supplierStatusBadge(s) {
+        if (s.paid) {
+            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(52,211,153,0.6);background:transparent;border:1px solid rgba(16,185,129,0.2);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="rgba(52,211,153,0.7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              Lunas
+            </span>`;
+        }
+        if (s.dl < 0) {
+            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#F87171;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
+              Terlambat
+            </span>`;
+        }
+        if (s.dl <= 3) {
+            const lbl = s.dl === 0 ? "Jatuh Tempo Hari Ini" : "Tempo H-" + s.dl;
+            return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#FBBF24;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: ${lbl}">
+              ${lbl}
+            </span>`;
+        }
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+          Belum Lunas
+        </span>`;
+    }
+
+    function supplierActionBtnHtml(s, isFullWidth = false) {
+        if (s.paid) return ""; // Baris yang sudah lunas → sel aksi dibiarkan kosong
+        const fullStyle = isFullWidth ? "width:100%;margin-top:10px;" : "";
+        return `<button type="button" aria-label="Tandai hutang supplier ${esc(s.name)} sebesar ${rp(s.amount)} sebagai lunas" ${A(s.onPay)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);color:#D4AF37;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          Tandai Lunas
+        </button>`;
+    }
+
     function recvView() {
         return DB.receivables.map((r) => {
             const dl = daysLeft(r.due);
@@ -1950,24 +1982,17 @@
             .sort((a, b) => a.paid - b.paid || b.id - a.id)
             .map((s) => {
                 const dl = daysLeft(s.due);
-                const over = dl < 0 && !s.paid;
+                const onPay = () => askConfirmPay("supplier", s);
+                const item = { ...s, dl, onPay };
                 return {
                     name: s.name,
                     amountText: rp(s.amount),
                     dueText: fmtDate(s.due),
                     notPaid: !s.paid,
-                    status: s.paid
-                        ? "Lunas"
-                        : over
-                          ? "Terlambat"
-                          : "Belum Lunas",
-                    color: s.paid
-                        ? "var(--ok)"
-                        : over
-                          ? "var(--danger)"
-                          : "var(--dangersoft)",
-                    bg: s.paid ? "var(--oktint)" : "var(--dangertint)",
-                    onPay: () => askConfirmPay("supplier", s),
+                    statusBadgeHtml: supplierStatusBadge(item),
+                    actionHtml: supplierActionBtnHtml(item, false),
+                    actionMobileHtml: supplierActionBtnHtml(item, true),
+                    onPay,
                 };
             });
 
