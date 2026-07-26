@@ -96,7 +96,7 @@ let S = {
   k_scanMode:null, k_scanMsg:'', k_scanDevices:[], k_scanDeviceId:null, k_scanManual:'',
   k_restockId:null, k_restockQty:'',                        // modal restock setelah scan masuk
   theme: 'dark', settingsBack: 'dashboard',
-  branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '',
+  branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '', editBranchId: null,
   // state untuk custom form controls (Select, DatePicker, MonthPicker)
   activeDD: null, activeDP: null, activeMP: null,
 };
@@ -206,11 +206,29 @@ async function saveProduct(){
 async function saveBranch(){
   const name = (S.newBranch||'').trim();
   if(!name){ flash('Isi nama cabang terlebih dahulu'); return; }
+  const edit = S.editBranchId !== null;
   try {
-    await api('/api/branches', 'POST', { name });
-    Object.assign(S, { branch:name, branchForm:false });
+    if(edit){
+      const old = DB.branches.find(b=>b.id===S.editBranchId);
+      await api('/api/branches/'+S.editBranchId, 'PATCH', { name });
+      Object.assign(S, { newBranch:'', editBranchId:null, branch: (old && S.branch===old.name) ? name : S.branch });
+    } else {
+      await api('/api/branches', 'POST', { name });
+      Object.assign(S, { newBranch:'', branch:name });
+    }
     await loadAll();
-    flash('Cabang "'+name+'" ditambahkan');
+    flash(edit ? 'Cabang "'+name+'" diperbarui' : 'Cabang "'+name+'" ditambahkan');
+  } catch(e) { flash(e.message); }
+}
+function editBranch(b){
+  setState({ editBranchId:b.id, newBranch:b.name });
+}
+async function deleteBranch(b){
+  try {
+    await api('/api/branches/'+b.id, 'DELETE');
+    Object.assign(S, { editBranchId:null, newBranch:'', branch: S.branch===b.name ? 'Semua' : S.branch });
+    await loadAll();
+    flash('Cabang "'+b.name+'" dihapus');
   } catch(e) { flash(e.message); }
 }
 
@@ -608,25 +626,26 @@ async function toggleUser(u){
 }
 
 /* ================= derived data ================= */
+/* ================= derived data ================= */
 function receivableStatusBadge(r) {
   if (r.paid) {
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(52,211,153,0.6);background:transparent;border:1px solid rgba(16,185,129,0.2);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="rgba(52,211,153,0.7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--ok);background:var(--oktint);border:1px solid var(--okborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
       Lunas
     </span>`;
   }
   if (r.dl < 0) {
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#F87171;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--danger);background:var(--dangertint);border:1px solid var(--dangerborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
       Terlambat
     </span>`;
   }
   if (r.dl <= 3) {
     const lbl = r.dl === 0 ? "Jatuh Tempo Hari Ini" : "Tempo H-" + r.dl;
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#FBBF24;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: ${lbl}">
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warntint);border:1px solid var(--warn);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: ${lbl}">
       ${lbl}
     </span>`;
   }
-  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
     Belum Lunas
   </span>`;
 }
@@ -634,31 +653,31 @@ function receivableStatusBadge(r) {
 function markPaidBtnHtml(r, isFullWidth = false) {
   if (r.paid) return "";
   const fullStyle = isFullWidth ? "width:100%;margin-top:12px;" : "";
-  return `<button type="button" aria-label="Tandai piutang ${esc(r.name)} sebesar ${rp(r.amount)} sebagai lunas" ${A(r.onPaid)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);color:#D4AF37;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  return `<button type="button" aria-label="Tandai piutang ${esc(r.name)} sebesar ${rp(r.amount)} sebagai lunas" ${A(r.onPaid)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
     Tandai Lunas
   </button>`;
 }
 
 function supplierStatusBadge(s) {
   if (s.paid) {
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(52,211,153,0.6);background:transparent;border:1px solid rgba(16,185,129,0.2);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="rgba(52,211,153,0.7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--ok);background:var(--oktint);border:1px solid var(--okborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
       Lunas
     </span>`;
   }
   if (s.dl < 0) {
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#F87171;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--danger);background:var(--dangertint);border:1px solid var(--dangerborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
       Terlambat
     </span>`;
   }
   if (s.dl <= 3) {
     const lbl = s.dl === 0 ? "Jatuh Tempo Hari Ini" : "Tempo H-" + s.dl;
-    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:#FBBF24;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: ${lbl}">
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warntint);border:1px solid var(--warn);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: ${lbl}">
       ${lbl}
     </span>`;
   }
-  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:500;color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
     Belum Lunas
   </span>`;
 }
@@ -666,10 +685,42 @@ function supplierStatusBadge(s) {
 function supplierActionBtnHtml(s, isFullWidth = false) {
   if (s.paid) return "";
   const fullStyle = isFullWidth ? "width:100%;margin-top:10px;" : "";
-  return `<button type="button" aria-label="Tandai hutang supplier ${esc(s.name)} sebesar ${rp(s.amount)} sebagai lunas" ${A(s.onPay)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);color:#D4AF37;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="#D4AF37" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  return `<button type="button" aria-label="Tandai hutang supplier ${esc(s.name)} sebesar ${rp(s.amount)} sebagai lunas" ${A(s.onPay)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
     Tandai Lunas
   </button>`;
+}
+
+function expenseStatusBadge(x) {
+  if (x.paid) {
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--ok);background:var(--oktint);border:1px solid var(--okborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      Lunas
+    </span>`;
+  }
+  if (!x.recurring) {
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Tercatat">
+      Tercatat
+    </span>`;
+  }
+  if (x.dl !== null && x.dl < 0) {
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--danger);background:var(--dangertint);border:1px solid var(--dangerborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Terlambat">
+      Terlambat
+    </span>`;
+  }
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warntint);border:1px solid var(--warn);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+    Belum Lunas
+  </span>`;
+}
+
+function expenseActionBtnHtml(x, isFullWidth = false) {
+  const fullStyle = isFullWidth ? "width:100%;margin-top:10px;" : "";
+  const payBtn = x.canPay ? `<button type="button" aria-label="Tandai biaya ${esc(x.category)} sebesar ${rp(x.amount)} sebagai lunas" ${A(x.onPay)} class="btn-mark-paid" style="height:34px;padding:0 12px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    Tandai Lunas
+  </button>` : "";
+  const delBtn = `<button ${A(x.onDelete)} title="Hapus biaya ${esc(x.category)}" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s ease;">×</button>`;
+  return `<div style="${fullStyle}display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;">${payBtn}${delBtn}</div>`;
 }
 
 function recvView(){
@@ -688,7 +739,7 @@ function expenseDueView(){
     return { ...e, dl, soon: dl <= 3 };
   });
 }
-function allBranches(){ return DB.branches.slice(); }
+function allBranches(){ return DB.branches.map(b=>b.name); }
 const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
 function getDash(b){
   if(DB.dash[b]) return DB.dash[b];
@@ -975,10 +1026,28 @@ function renderVals(){
     const status = e.paid ? 'Lunas' : (e.recurring ? (over?'Terlambat':'Belum Lunas') : 'Tercatat');
     const color = (e.paid || !e.recurring) ? 'var(--ok)' : (over?'var(--danger)':'var(--warn)');
     const bg = (e.paid || !e.recurring) ? 'var(--oktint)' : (over?'var(--dangertint)':'var(--warntint)');
-    return { id:e.id, category:e.category, note:e.note, amountText:rp(e.amount), cabang:e.cabang,
-      dateText:fmtDate(e.date), recurringText: e.recurring ? 'Rutin · tgl '+e.dueDay : 'Sekali ini',
-      status, color, bg, canPay: e.recurring && !e.paid,
-      onPay:()=>payExpense(e), onDelete:()=>deleteExpense(e) };
+    const canPay = e.recurring && !e.paid;
+    const onPay = () => payExpense(e);
+    const onDelete = () => deleteExpense(e);
+    const item = { ...e, dl, paid: e.paid, recurring: e.recurring, canPay, onPay, onDelete };
+    return {
+      id: e.id,
+      category: e.category,
+      note: e.note,
+      amountText: rp(e.amount),
+      cabang: e.cabang,
+      dateText: fmtDate(e.date),
+      recurringText: e.recurring ? 'Rutin · tgl '+e.dueDay : 'Sekali ini',
+      status,
+      color,
+      bg,
+      canPay,
+      onPay,
+      onDelete,
+      statusBadgeHtml: expenseStatusBadge(item),
+      actionHtml: expenseActionBtnHtml(item, false),
+      actionMobileHtml: expenseActionBtnHtml(item, true),
+    };
   });
   const curMonth = TODAY.getMonth(), curYearNum = TODAY.getFullYear();
   const expenseMonthTotal = DB.expenses
@@ -1080,10 +1149,17 @@ function renderVals(){
       onClick: ()=>setState({branch:b, branchMenu:false}),
     })),
     branchForm:S.branchForm, newBranch:S.newBranch,
-    openBranchForm:()=>setState({branchForm:true, branchMenu:false, newBranch:''}),
-    closeBranchForm:()=>setState({branchForm:false}),
+    branchFormIsEdit: S.editBranchId !== null,
+    openBranchForm:()=>setState({branchForm:true, branchMenu:false, editBranchId:null, newBranch:''}),
+    closeBranchForm:()=>setState({branchForm:false, editBranchId:null}),
     onNewBranch:(e)=>setState({newBranch:e.target.value}),
     saveBranch:()=>saveBranch(),
+    cancelEditBranch:()=>setState({editBranchId:null, newBranch:''}),
+    confirmDeleteBranch:()=>{
+      const b = DB.branches.find(x=>x.id===S.editBranchId);
+      if(b) askConfirmDelete('cabang "'+b.name+'"', ()=>deleteBranch(b));
+    },
+    branchRows: DB.branches.map(b=>({ id:b.id, name:b.name, onEdit:()=>editBranch(b) })),
 
     scan:S.scan, closeScan:()=>stopScan(),
     scanMsg:S.scanMsg,
@@ -1091,7 +1167,7 @@ function renderVals(){
     scanManual:S.scanManual, onScanManual:(e)=>setState({scanManual:e.target.value}),
     useManual:()=>handleScanResult(S.scanManual),
 
-    piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0,
+    piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0, piutangTotalText:rp(piutangTotal),
     tempoRows, tempoEmpty:tempoRows.length===0,
     stokRows, catChips, openScanStok:()=>startScan('stok'), stokEmpty:stokRows.length===0,
     catForm:S.catForm, newCat:S.newCat,
@@ -1723,6 +1799,12 @@ function secDashboardHtml(V){
 
 function secPiutangHtml(V){
   return `<div style="${V.popScreen}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--goldsoft);">Total Piutang Berjalan</span>
+        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;color:var(--text);">${V.piutangTotalText}</span>
+      </div>
+    </div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px;">
       <div style="position:relative;display:flex;align-items:center;width:100%;max-width:420px;">
         ${svgSearchIc(17,14)}
@@ -2026,9 +2108,9 @@ function secProdukHtml(V){
 function secSupplierHtml(V){
   return `<div style="${V.popScreen}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:16px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g5),var(--g6));box-shadow:var(--cardshadow);border:1px solid var(--dangerborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <span style="font-size:13px;color:var(--dangersoft);">Total Hutang ke Supplier</span>
-        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;">${V.supplierTotalText}</span>
+      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--goldsoft);">Total Hutang ke Supplier</span>
+        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;color:var(--text);">${V.supplierTotalText}</span>
       </div>
       <button ${A(V.newPO)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Buat Purchase Order</button>
     </div>
@@ -2066,28 +2148,25 @@ function secSupplierHtml(V){
 function secBiayaHtml(V){
   return `<div style="${V.popScreen}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:16px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g5),var(--g6));box-shadow:var(--cardshadow);border:1px solid var(--dangerborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <span style="font-size:13px;color:var(--dangersoft);">Biaya Operasional Bulan Ini</span>
-        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;">${V.expenseMonthTotalText}</span>
+      <div style="flex:1;min-width:220px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);border-radius:16px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--goldsoft);">Biaya Operasional Bulan Ini</span>
+        <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;color:var(--text);">${V.expenseMonthTotalText}</span>
       </div>
       <button ${A(V.newBiaya)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Catat Biaya</button>
     </div>
     ${V.expenseEmpty ? `<div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Belum ada biaya tercatat.</div>` : V.isDesktop ? `
       <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
-        <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
-          <span>Kategori</span><span>Keterangan</span><span>Nominal</span><span>Tanggal</span><span style="text-align:right;">Status</span>
+        <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.3fr 1.3fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+          <span>Kategori</span><span>Keterangan</span><span>Nominal</span><span>Tanggal</span><span>Status</span><span style="text-align:right;">Aksi</span>
         </div>
         ${V.expenseRows.map(x => `
-          <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.6fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+          <div style="display:grid;grid-template-columns:1.4fr 1.6fr 1.2fr 1fr 1.3fr 1.3fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span style="font-weight:600;">${esc(x.category)}</span>
             <span style="color:var(--muted);">${esc(x.note||x.recurringText)}</span>
             <span style="font-family:'Saira',sans-serif;font-weight:700;">${x.amountText}</span>
             <span style="color:var(--muted);">${x.dateText}</span>
-            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">
-              ${badge(x.color,x.bg,x.status)}
-              ${x.canPay ? `<button ${A(x.onPay)} style="height:32px;padding:0 12px;border-radius:9px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
-              <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
-            </span>
+            <span>${x.statusBadgeHtml}</span>
+            <span style="text-align:right;">${x.actionHtml}</span>
           </div>`).join('')}
       </div>` : `
       <div style="display:flex;flex-direction:column;gap:9px;">
@@ -2099,11 +2178,8 @@ function secBiayaHtml(V){
             </div>
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${x.amountText}</div>
-              <span style="font-size:10px;font-weight:700;color:${x.color};background:${x.bg};padding:2px 7px;border-radius:6px;display:inline-block;margin-top:3px;">${x.status}</span>
-              <div style="margin-top:7px;display:flex;gap:6px;justify-content:flex-end;">
-                ${x.canPay ? `<button ${A(x.onPay)} style="height:30px;padding:0 12px;border-radius:8px;background:var(--oktint);border:1px solid var(--okborder);color:var(--ok);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lunasi</button>` : ''}
-                <button ${A(x.onDelete)} title="hapus-biaya-${x.id}" style="width:30px;height:30px;flex:none;border-radius:8px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
-              </div>
+              <div style="margin-top:4px;">${x.statusBadgeHtml}</div>
+              ${x.actionMobileHtml}
             </div>
           </div>`).join('')}
       </div>`}
@@ -2195,7 +2271,7 @@ function adminHtml(V){
                   </button>`).join('')}
                 <button ${A(V.openBranchForm)} class="fx-hover" style="width:100%;display:flex;align-items:center;gap:9px;padding:13px 14px;background:none;border:none;border-top:1px solid var(--divider);cursor:pointer;font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;font-weight:600;color:var(--gold);text-align:left;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="#D4AF37" stroke-width="2.2" stroke-linecap="round"></path></svg>
-                  Tambah Cabang
+                  Kelola Cabang
                 </button>
               </div>` : ''}
           </div>
@@ -2369,19 +2445,34 @@ function branchFormHtml(V){
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeBranchForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('branchForm')}">
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('branchForm')}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Tambah Cabang</h3>
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Cabang</h3>
       <button ${A(V.closeBranchForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Data penjualan mulai tercatat setelah ada transaksi.</p>
-    <div>${lbl('Nama Cabang')}
-      <input id="i-newbranch" value="${esc(V.newBranch)}" ${I(V.onNewBranch)} placeholder="cnt. Yogyakarta" style="${inputStyle(48)}">
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Cabang yang masih punya data (produk/user/transaksi/piutang/biaya) tidak bisa dihapus.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+      ${V.branchRows.map(b => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:9px 9px 9px 14px;">
+          <span style="font-size:13.5px;font-weight:600;">${esc(b.name)}</span>
+          <button ${A(b.onEdit)} title="edit-branch-${esc(b.name)}" style="height:30px;padding:0 13px;flex:none;border-radius:9px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>
+        </div>`).join('')}
     </div>
-    <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closeBranchForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveBranch)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN CABANG</button>
+    <div>${lbl(V.branchFormIsEdit ? 'Edit Cabang' : 'Nama Cabang')}
+      <div style="display:flex;gap:8px;">
+        <input id="i-newbranch" value="${esc(V.newBranch)}" ${I(V.onNewBranch)} placeholder="cnt. Yogyakarta" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+        <button ${A(V.saveBranch)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">${V.branchFormIsEdit ? 'SIMPAN' : 'TAMBAH'}</button>
+      </div>
+      ${
+          V.branchFormIsEdit
+              ? `<div style="display:flex;gap:14px;margin-top:8px;">
+        <button ${A(V.cancelEditBranch)} style="background:none;border:none;color:var(--muted);font-size:12.5px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Batal edit</button>
+        <button ${A(V.confirmDeleteBranch)} style="background:none;border:none;color:var(--danger);font-size:12.5px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Hapus cabang ini</button>
+      </div>`
+              : ""
+      }
     </div>
+    <button ${A(V.closeBranchForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
