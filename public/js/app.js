@@ -564,7 +564,8 @@ async function kScanTick() {
     if (!codeFound) {
       codeFound = decodeFrameFromVideo(v);
     }
-    } catch(e) { /* frame tidak terbaca */ }
+    if (codeFound) handleScanKasir(codeFound);
+  } catch(e) { /* frame tidak terbaca */ }
   finally { kScanBusy = false; }
 }
 function handleScanKasir(code) {
@@ -578,7 +579,7 @@ function handleScanKasir(code) {
 function stopScanKasir() {
   clearInterval(kScanTimer); kScanTimer = null;
   if (kScanStream) { kScanStream.getTracks().forEach(t => t.stop()); kScanStream = null; }
-  if (kZxingReader) kZxingReader.reset();
+  if (zxingMultiReader) zxingMultiReader.reset();
   setState({ k_scanMode: null });
 }
 async function saveRestockKasir(productId, qty) {
