@@ -3,7 +3,7 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], expenses: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], expenses: [], expenseCategories: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
@@ -29,7 +29,7 @@ async function api(path, method, body){
 async function loadAll(){
   const [boot, dash] = await Promise.all([api('/api/bootstrap'), api('/api/dashboard')]);
   Object.assign(DB, boot, { dash });
-  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; DB.expenses = []; // data berubah setelah tulis → buang cache
+  DB.byUser = {}; DB.memberItems = {}; DB.yearly = {}; DB.expenses = []; DB.expenseCategories = []; // data berubah setelah tulis → buang cache
   if(USER && USER.role === 'admin'){
     await loadByUser(S.uPeriod);
     if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
@@ -40,6 +40,7 @@ async function loadAll(){
 async function loadExpenses(){
   const r = await api('/api/expenses');
   DB.expenses = r.expenses;
+  DB.expenseCategories = r.expenseCategories;
 }
 // penjualan per anggota: 1 periode, on-demand, di-cache per periode (khusus admin; BE menolak kasir)
 async function loadByUser(period){
@@ -91,6 +92,10 @@ let S = {
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
   scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
   biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
+  bxCatForm:false, newBxCat:'', editBxCatId:null,           // modal Kelola Kategori Biaya
+  editExpenseId:null,                                       // null = form Catat Biaya mode tambah
+  confirmPay:null,                                          // modal konfirmasi tandai lunas: {kind:'receivable'|'supplier', row} | null
+  confirmDelete:null,                                       // modal konfirmasi hapus generik: {label, onConfirm} | null
   uPassShow:false,                                          // tombol mata password form user
   // scan kasir (stream terpisah dari scan admin supaya tidak konflik state)
   k_scanMode:null, k_scanMsg:'', k_scanDevices:[], k_scanDeviceId:null, k_scanManual:'',
@@ -183,6 +188,23 @@ async function markPaid(id){
   try { await api('/api/receivables/'+id+'/pay', 'POST', {}); await loadAll(); flash('Tagihan ditandai lunas'); }
   catch(e) { flash(e.message); }
 }
+// konfirmasi sebelum tandai lunas (piutang/hutang supplier) — cegah salah klik
+function askConfirmPay(kind, row){ setState({ confirmPay:{ kind, row } }); }
+async function doConfirmPay(){
+  const c = S.confirmPay;
+  if(!c) return;
+  setState({ confirmPay:null });
+  if(c.kind==='receivable') await markPaid(c.row.id);
+  else if(c.kind==='supplier') await paySupplier(c.row);
+}
+// konfirmasi generik sebelum hapus (biaya, kategori biaya, dst) — cegah salah klik
+function askConfirmDelete(label, onConfirm){ setState({ confirmDelete:{ label, onConfirm } }); }
+async function doConfirmDelete(){
+  const c = S.confirmDelete;
+  if(!c) return;
+  setState({ confirmDelete:null });
+  await c.onConfirm();
+}
 
 async function saveProduct(){
   if(!S.pName.trim()){ flash('Isi nama produk dulu'); return; }
@@ -251,6 +273,30 @@ async function deleteCategory(c){
   } catch(e) { flash(e.message); }
 }
 
+async function saveBxCategory(){
+  const name = (S.newBxCat||'').trim();
+  if(!name){ flash('Isi nama kategori terlebih dahulu'); return; }
+  const edit = S.editBxCatId !== null;
+  try {
+    if(edit) await api('/api/expense-categories/'+S.editBxCatId, 'PATCH', { name });
+    else await api('/api/expense-categories', 'POST', { name });
+    Object.assign(S, { newBxCat:'', editBxCatId:null });
+    await loadAll();
+    flash(edit ? 'Kategori "'+name+'" diperbarui' : 'Kategori "'+name+'" ditambahkan');
+  } catch(e) { flash(e.message); }
+}
+function editBxCategory(c){
+  setState({ editBxCatId:c.id, newBxCat:c.name });
+}
+async function deleteBxCategory(c){
+  try {
+    await api('/api/expense-categories/'+c.id, 'DELETE');
+    Object.assign(S, { editBxCatId:null, newBxCat:'' });
+    await loadAll();
+    flash('Kategori "'+c.name+'" dihapus');
+  } catch(e) { flash(e.message); }
+}
+
 async function openMemberDetail(uname){
   if(S.memberOpen === uname){ setState({ memberOpen: null }); return; }
   setState({ memberOpen: uname });
@@ -314,25 +360,41 @@ async function saveExpense(){
   if(!amount){ flash('Isi nominal dulu'); return; }
   if(S.bxRecurring && !S.bxDueDay){ flash('Isi tanggal jatuh tempo tiap bulan'); return; }
   if(!S.bxRecurring && !S.bxDate){ flash('Isi tanggal biaya ini terjadi'); return; }
+  const edit = S.editExpenseId !== null;
+  const body = {
+    category: S.bxCategory, note: S.bxNote.trim(), amount,
+    branch: S.bxBranch, recurring: S.bxRecurring,
+    dueDay: S.bxRecurring ? (parseInt(S.bxDueDay)||null) : null,
+    date: S.bxRecurring ? null : S.bxDate,
+  };
   try {
-    await api('/api/expenses', 'POST', {
-      category: S.bxCategory, note: S.bxNote.trim(), amount,
-      branch: S.bxBranch, recurring: S.bxRecurring,
-      dueDay: S.bxRecurring ? (parseInt(S.bxDueDay)||null) : null,
-      date: S.bxRecurring ? null : S.bxDate,
-    });
-    Object.assign(S, { biayaForm:false });
+    if(edit) await api('/api/expenses/'+S.editExpenseId, 'PATCH', body);
+    else await api('/api/expenses', 'POST', body);
+    Object.assign(S, { biayaForm:false, editExpenseId:null });
     await loadAll();
-    flash('Biaya tercatat');
+    flash(edit ? 'Biaya diperbarui' : 'Biaya tercatat');
   } catch(e) { flash(e.message); }
+}
+function editExpense(e){
+  setState({
+    biayaForm:true, editExpenseId:e.id,
+    bxCategory:e.category, bxNote:e.note||'', bxAmount:String(e.amount),
+    bxBranch:e.cabang, bxRecurring:e.recurring,
+    bxDueDay: e.recurring ? String(e.dueDay||'') : '',
+    bxDate: e.recurring ? '' : e.date,
+  });
 }
 async function payExpense(x){
   try { await api('/api/expenses/'+x.id+'/pay', 'POST', {}); await loadAll(); flash('Biaya '+x.category+' ditandai lunas'); }
   catch(e) { flash(e.message); }
 }
 async function deleteExpense(x){
-  try { await api('/api/expenses/'+x.id, 'DELETE'); await loadAll(); flash('Biaya dihapus'); }
-  catch(e) { flash(e.message); }
+  try {
+    await api('/api/expenses/'+x.id, 'DELETE');
+    Object.assign(S, { biayaForm:false, editExpenseId:null });
+    await loadAll();
+    flash('Biaya dihapus');
+  } catch(e) { flash(e.message); }
 }
 
 /* ---- scan barcode (EAN-13 dsb.) via kamera ----
@@ -645,7 +707,7 @@ function receivableStatusBadge(r) {
       ${lbl}
     </span>`;
   }
-  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--dangersoft);background:var(--dangertint);border:1px solid var(--dangerborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
     Belum Lunas
   </span>`;
 }
@@ -677,7 +739,7 @@ function supplierStatusBadge(s) {
       ${lbl}
     </span>`;
   }
-  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--dangersoft);background:var(--dangertint);border:1px solid var(--dangerborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Belum Lunas">
     Belum Lunas
   </span>`;
 }
@@ -719,8 +781,8 @@ function expenseActionBtnHtml(x, isFullWidth = false) {
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
     Tandai Lunas
   </button>` : "";
-  const delBtn = `<button ${A(x.onDelete)} title="Hapus biaya ${esc(x.category)}" style="width:34px;height:34px;flex:none;border-radius:8px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s ease;">×</button>`;
-  return `<div style="${fullStyle}display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;">${payBtn}${delBtn}</div>`;
+  const editBtn = `<button type="button" aria-label="Edit biaya ${esc(x.category)}" ${A(x.onEdit)} title="edit-biaya-${x.id}" style="height:34px;padding:0 13px;flex:none;border-radius:8px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>`;
+  return `<div style="${fullStyle}display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;">${payBtn}${editBtn}</div>`;
 }
 
 function recvView(){
@@ -858,7 +920,7 @@ function renderVals(){
     if(S.pf==='Lunas' && !r.paid) return false;
     if(pq && !r.name.toLowerCase().includes(pq)) return false;
     return true;
-  }).map(r => {
+  }).sort((a,b)=>(a.paid-b.paid)||(b.id-a.id)).map(r => {
     const onPaid = () => askConfirmPay("receivable", r);
     const item = { ...r, onPaid };
     return {
@@ -883,7 +945,7 @@ function renderVals(){
     return { id:r.id, name:r.name, amountText:rp(r.amount), dueDateText:fmtDate(r.due),
       badge: over?'Terlambat '+Math.abs(r.dl)+' hari':(r.dl===0?'Jatuh tempo hari ini':'Sisa '+r.dl+' hari'),
       color: over?'var(--danger)':(r.dl<=1?'var(--warn)':'var(--gold)'),
-      bg: over?'var(--dangertint)':'var(--warntint)', onPaid:()=>markPaid(r.id) }; });
+      bg: over?'var(--dangertint)':'var(--warntint)', onPaid:()=>askConfirmPay('receivable', r) }; });
 
   const cats=['Semua', ...DB.categories.map(c=>c.name)];
   const stokRows = DB.products.filter(p=>(branch==='Semua'||p.cabang===branch) && (S.stokCat==='Semua'||p.kategori===S.stokCat)).map(p=>{
@@ -1028,8 +1090,8 @@ function renderVals(){
     const bg = (e.paid || !e.recurring) ? 'var(--oktint)' : (over?'var(--dangertint)':'var(--warntint)');
     const canPay = e.recurring && !e.paid;
     const onPay = () => payExpense(e);
-    const onDelete = () => deleteExpense(e);
-    const item = { ...e, dl, paid: e.paid, recurring: e.recurring, canPay, onPay, onDelete };
+    const onEdit = () => editExpense(e);
+    const item = { ...e, dl, paid: e.paid, recurring: e.recurring, canPay, onPay, onEdit };
     return {
       id: e.id,
       category: e.category,
@@ -1043,7 +1105,7 @@ function renderVals(){
       bg,
       canPay,
       onPay,
-      onDelete,
+      onEdit,
       statusBadgeHtml: expenseStatusBadge(item),
       actionHtml: expenseActionBtnHtml(item, false),
       actionMobileHtml: expenseActionBtnHtml(item, true),
@@ -1252,8 +1314,9 @@ function renderVals(){
     expenseRows, expenseMonthTotalText: rp(expenseMonthTotal), expenseEmpty: expenseRows.length===0,
 
     biayaForm:S.biayaForm,
-    newBiaya:()=>setState({biayaForm:true, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch: branch==='Semua' ? (allBranches()[0]||'') : branch, bxRecurring:false, bxDueDay:'', bxDate:''}),
-    closeBiayaForm:()=>setState({biayaForm:false}),
+    bxFormIsEdit: S.editExpenseId !== null,
+    newBiaya:()=>setState({biayaForm:true, editExpenseId:null, bxCategory:(DB.expenseCategories[0]||{}).name||'', bxNote:'', bxAmount:'', bxBranch: branch==='Semua' ? (allBranches()[0]||'') : branch, bxRecurring:false, bxDueDay:'', bxDate:''}),
+    closeBiayaForm:()=>setState({biayaForm:false, editExpenseId:null}),
     bxCategory:S.bxCategory, onBxCategory:(e)=>setState({bxCategory:e.target.value}),
     bxNote:S.bxNote, onBxNote:(e)=>setState({bxNote:e.target.value}),
     bxAmountText: S.bxAmount, onBxAmount:(e)=>setState({bxAmount:(e.target.value||'').replace(/\D/g,'')}),
@@ -1262,7 +1325,19 @@ function renderVals(){
     bxTypeTiles: ['Sekali Ini','Rutin Bulanan'].map(t=>({ label:t, on:(t==='Rutin Bulanan')===S.bxRecurring, onClick:()=>setState({bxRecurring: t==='Rutin Bulanan'}) })),
     bxDueDay:S.bxDueDay, onBxDueDay:(e)=>setState({bxDueDay:(e.target.value||'').replace(/\D/g,'')}),
     bxDate:S.bxDate, onBxDate:(e)=>setState({bxDate:e.target.value}),
-    bxCategoryOptions: ['Sewa','Listrik','Sampah','Plastik','Lainnya'],
+    bxCategoryOptions: DB.expenseCategories.map(c=>c.name),
+    confirmDeleteExpense:()=>askConfirmDelete('biaya "'+S.bxCategory+'" ('+rp(parseInt(S.bxAmount)||0)+')', ()=>deleteExpense({id:S.editExpenseId})),
+    bxCatForm:S.bxCatForm, bxCatFormIsEdit: S.editBxCatId !== null, newBxCat:S.newBxCat,
+    openBxCatForm:()=>setState({bxCatForm:true, editBxCatId:null, newBxCat:''}),
+    closeBxCatForm:()=>setState({bxCatForm:false, editBxCatId:null}),
+    onNewBxCat:(e)=>setState({newBxCat:e.target.value}),
+    saveBxCategory:()=>saveBxCategory(),
+    cancelEditBxCat:()=>setState({editBxCatId:null, newBxCat:''}),
+    confirmDeleteBxCat:()=>{
+      const c = DB.expenseCategories.find(x=>x.id===S.editBxCatId);
+      if(c) askConfirmDelete('kategori "'+c.name+'"', ()=>deleteBxCategory(c));
+    },
+    bxCatRows: DB.expenseCategories.map(c=>({ id:c.id, name:c.name, onEdit:()=>editBxCategory(c) })),
     saveExpense:()=>saveExpense(),
 
     restockOpen: restockProd !== null,
@@ -1271,6 +1346,14 @@ function renderVals(){
     restockQty:S.restockQty, onRestockQty:(e)=>setState({restockQty:(e.target.value||'').replace(/\D/g,'')}),
     closeRestock:()=>setState({restockId:null}),
     saveRestock:()=>saveRestock(),
+
+    confirmPay:S.confirmPay,
+    closeConfirmPay:()=>setState({confirmPay:null}),
+    doConfirmPay:()=>doConfirmPay(),
+
+    confirmDelete:S.confirmDelete,
+    closeConfirmDelete:()=>setState({confirmDelete:null}),
+    doConfirmDelete:()=>doConfirmDelete(),
 
     toast:S.toast,
   };
@@ -2152,7 +2235,10 @@ function secBiayaHtml(V){
         <span style="font-size:13px;color:var(--goldsoft);">Biaya Operasional Bulan Ini</span>
         <span style="font-family:'Saira',sans-serif;font-weight:900;font-size:26px;color:var(--text);">${V.expenseMonthTotalText}</span>
       </div>
-      <button ${A(V.newBiaya)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Catat Biaya</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button ${A(V.openBxCatForm)} style="height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Kelola Kategori</button>
+        <button ${A(V.newBiaya)} style="height:48px;padding:0 22px;border-radius:13px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;white-space:nowrap;">+ Catat Biaya</button>
+      </div>
     </div>
     ${V.expenseEmpty ? `<div style="padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Belum ada biaya tercatat.</div>` : V.isDesktop ? `
       <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
@@ -2233,7 +2319,7 @@ function adminHtml(V){
           <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">Dashboard Admin</div>
         </div>
       </div>
-      <div class="scrl" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;">
+      <div class="scrl" id="admin-sidebar-scrl" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;">
         ${V.sidebarItems.map(m => m.section ? `
           <div style="padding:14px 12px 5px;font-family:'Saira',sans-serif;font-weight:700;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);">${esc(m.section)}</div>
         ` : `
@@ -2255,7 +2341,7 @@ function adminHtml(V){
         </div>
         <div style="display:flex;align-items:center;gap:${V.topbarGapR}px;flex:none;">
           <div style="position:relative;">
-            <button ${A(V.toggleBranchMenu)} style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);border-radius:11px;padding:${V.branchPadY}px ${V.branchPadX}px;font-size:${V.branchFont}px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">
+            <button ${A(V.toggleBranchMenu)} title="toggle-branch-menu" style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);border-radius:11px;padding:${V.branchPadY}px ${V.branchPadX}px;font-size:${V.branchFont}px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">
               ${V.showBranchPin ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11Z" stroke="#D4AF37" stroke-width="2"></path><circle cx="12" cy="10" r="2.4" stroke="#D4AF37" stroke-width="2"></circle></svg>` : ''}
               ${esc(V.branchLabel)}
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="#D4AF37" stroke-width="2.4" stroke-linecap="round"></path></svg>
@@ -2615,13 +2701,16 @@ function biayaFormHtml(V){
   <div ${A(V.closeBiayaForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
   <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('biayaForm')}">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Catat Biaya</h3>
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">${V.bxFormIsEdit ? 'Edit Biaya' : 'Catat Biaya'}</h3>
       <button ${A(V.closeBiayaForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Sewa/listrik yang rutin tiap bulan, atau printilan sekali ini (plastik, sampah, dll).</p>
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>${lbl('Jenis')}
-        <div style="display:flex;gap:8px;margin-top:2px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>
+        ${V.bxFormIsEdit
+          ? `<div style="height:44px;margin-top:2px;display:flex;align-items:center;padding:0 14px;border-radius:11px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:13.5px;">${V.bxRecurring?'Rutin Bulanan':'Sekali Ini'} <span style="margin-left:8px;font-size:11.5px;color:var(--dim2);">(tidak bisa diubah)</span></div>`
+          : `<div style="display:flex;gap:8px;margin-top:2px;">${V.bxTypeTiles.map(t=>`<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`).join('')}</div>`
+        }
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Kategori')}${customSelectHtml('bxcategory', V.bxCategory, V.bxCategoryOptions, (v) => setState({ bxCategory: v }), 'Pilih kategori...')}</div>
@@ -2640,6 +2729,68 @@ function biayaFormHtml(V){
     <div style="display:flex;gap:10px;margin-top:18px;">
       <button ${A(V.closeBiayaForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
       <button ${A(V.saveExpense)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN BIAYA</button>
+    </div>
+    ${V.bxFormIsEdit ? `<button ${A(V.confirmDeleteExpense)} style="width:100%;height:40px;margin-top:6px;border:none;background:none;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Hapus Biaya Ini</button>` : ''}
+  </div>`;
+}
+
+function bxCatFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
+  return `
+  <div ${A(V.closeBxCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('bxCatForm')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Kategori Biaya</h3>
+      <button ${A(V.closeBxCatForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk mengelompokkan biaya operasional. Kategori yang masih dipakai catatan biaya tidak bisa dihapus.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+      ${V.bxCatRows.map(c => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:9px 9px 9px 14px;">
+          <span style="font-size:13.5px;font-weight:600;">${esc(c.name)}</span>
+          <button ${A(c.onEdit)} title="edit-bxcat-${esc(c.name)}" style="height:30px;padding:0 13px;flex:none;border-radius:9px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>
+        </div>`).join('')}
+    </div>
+    <div>${lbl(V.bxCatFormIsEdit ? 'Edit Kategori' : 'Kategori Baru')}
+      <div style="display:flex;gap:8px;">
+        <input id="i-newbxcat" value="${esc(V.newBxCat)}" ${I(V.onNewBxCat)} placeholder="cnt. Internet" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
+        <button ${A(V.saveBxCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">${V.bxCatFormIsEdit ? 'SIMPAN' : 'TAMBAH'}</button>
+      </div>
+      ${V.bxCatFormIsEdit ? `<div style="display:flex;gap:14px;margin-top:8px;">
+        <button ${A(V.cancelEditBxCat)} style="background:none;border:none;color:var(--muted);font-size:12.5px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Batal edit</button>
+        <button ${A(V.confirmDeleteBxCat)} style="background:none;border:none;color:var(--danger);font-size:12.5px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Hapus kategori ini</button>
+      </div>` : ''}
+    </div>
+    <button ${A(V.closeBxCatForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+  </div>`;
+}
+
+function confirmPayHtml(V){
+  const c = V.confirmPay; // {kind:'receivable'|'supplier', row}
+  return `
+  <div ${A(V.closeConfirmPay)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;${V.popModal('confirmPay')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin:0 0 12px;">Konfirmasi Pelunasan</h3>
+    <p style="font-size:15px;color:var(--text);margin:0 0 6px;line-height:1.6;">Anda yakin <b style="color:var(--gold);">${esc(c.row.name)}</b> sudah lunas?</p>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 22px;">Nominal ${rp(c.row.amount)}${c.kind==='supplier'?' · hutang ke supplier':''}</p>
+    <div style="display:flex;gap:10px;">
+      <button ${A(V.closeConfirmPay)} style="flex:1;height:46px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.doConfirmPay)} style="flex:1;height:46px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.03em;cursor:pointer;">YA, SUDAH LUNAS</button>
+    </div>
+  </div>`;
+}
+
+function confirmDeleteHtml(V){
+  const c = V.confirmDelete; // {label, onConfirm}
+  return `
+  <div ${A(V.closeConfirmDelete)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;${V.popModal('confirmDelete')}">
+    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin:0 0 12px;">Konfirmasi Hapus</h3>
+    <p style="font-size:15px;color:var(--text);margin:0 0 22px;line-height:1.6;">Anda yakin ingin menghapus <b style="color:var(--danger);">${esc(c.label)}</b>? Tindakan ini tidak bisa dibatalkan.</p>
+    <div style="display:flex;gap:10px;">
+      <button ${A(V.closeConfirmDelete)} style="flex:1;height:46px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.doConfirmDelete)} style="flex:1;height:46px;border:none;border-radius:12px;background:var(--danger);color:#fff;font-family:'Saira',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.03em;cursor:pointer;">YA, HAPUS</button>
     </div>
   </div>`;
 }
@@ -2718,8 +2869,11 @@ function html(V){
     ${V.prodForm ? prodFormHtml(V) : ''}
     ${V.poForm ? poFormHtml(V) : ''}
     ${V.biayaForm ? biayaFormHtml(V) : ''}
+    ${V.bxCatForm ? bxCatFormHtml(V) : ''}
     ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
+    ${V.confirmPay ? confirmPayHtml(V) : ''}
+    ${V.confirmDelete ? confirmDeleteHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
     ${customOverlayHtml(V)}
   </div>`;
@@ -2736,8 +2890,8 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
-    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, restock:S.restockId!==null,
-    branchMenu:S.branchMenu, memberDd:S.memberDropdown, toast:!!S.toast };
+    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null,
+    branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
   V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;'; // modal tengah: keyframes menyertakan translate(-50%,-50%)
@@ -2751,10 +2905,16 @@ function render(){
   }
   // pertahankan posisi scroll antar render (overlay selalu dirender paling akhir,
   // jadi pencocokan berdasarkan urutan aman untuk konten utama)
+  const sidebarEl = root.querySelector('#admin-sidebar-scrl');
+  const sidebarScrollTop = sidebarEl ? sidebarEl.scrollTop : 0;
   const scrolls = sameScreen ? [...root.querySelectorAll('.scrl')].map(el => el.scrollTop) : null;
   root.innerHTML = html(V);
   if(scrolls){
     [...root.querySelectorAll('.scrl')].forEach((el, i) => { if(i < scrolls.length && scrolls[i]) el.scrollTop = scrolls[i]; });
+  }
+  const newSidebarEl = root.querySelector('#admin-sidebar-scrl');
+  if(newSidebarEl && sidebarScrollTop){
+    newSidebarEl.scrollTop = sidebarScrollTop;
   }
   lastScreen = S.screen;
   prevOpen = openNow;

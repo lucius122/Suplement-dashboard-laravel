@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\Product;
 use App\Models\Promo;
 use App\Models\Receivable;
@@ -114,6 +115,10 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($promos as $p) {
             Promo::create(['name' => $p[0], 'desc' => $p[1], 'type' => $p[2], 'value' => $p[3]]);
+        }
+
+        foreach (['Sewa', 'Listrik', 'Sampah', 'Plastik', 'Lainnya'] as $cat) {
+            ExpenseCategory::create(['name' => $cat]);
         }
 
         // ---- biaya operasional (rutin bulanan + printilan tak terduga) ----

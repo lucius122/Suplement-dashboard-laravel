@@ -1,7 +1,8 @@
 /* Tes e2e headless: buka /?e2e=1 lalu baca div#results. Boleh dihapus kapan saja. */
 (function(){
   window.__errors = window.__errors || [];
-  window.addEventListener('error', e => window.__errors.push(e.message));
+  window.addEventListener('error', e => { window.__errors.push(e.message); document.title = 'JSERR: ' + window.__errors.join(' | '); });
+  window.addEventListener('unhandledrejection', e => { window.__errors.push('unhandledrejection: ' + (e.reason && e.reason.message || e.reason)); document.title = 'JSERR: ' + window.__errors.join(' | '); });
 
   const out = [];
   const R = document.createElement('div');
@@ -11,7 +12,7 @@
   const appEl = () => document.getElementById('app');
   const btn = txt => [...appEl().querySelectorAll('button')].find(b => b.textContent.trim().includes(txt));
   const has = txt => appEl().textContent.includes(txt);
-  const step = (name, ok) => out.push((ok ? 'PASS' : 'FAIL') + ' :: ' + name);
+  const step = (name, ok) => { out.push((ok ? 'PASS' : 'FAIL') + ' :: ' + name); R.textContent = 'PROGRESS[' + out.join(' ;; ') + ']'; };
   const click = el => el && el.dispatchEvent(new MouseEvent('click', {bubbles:true}));
   const type = (id, val) => { const el = document.getElementById(id); if(!el) return false; el.value = val; el.dispatchEvent(new Event('input', {bubbles:true})); return true; };
   const waitFor = (cond, ms) => new Promise(res => {
@@ -54,6 +55,42 @@
 
       click(btn('Pleburan'));
       step('menu cabang', await waitFor(() => has('Pilih Cabang')));
+
+      // kelola cabang: tambah, edit (rename), blokir hapus yang berdata, hapus yang baru — lewat pop-up konfirmasi
+      click(btn('Kelola Cabang'));
+      step('modal kelola cabang terbuka', await waitFor(() => !!document.getElementById('i-newbranch')));
+      const brName = 'CabangE2E' + String(Date.now()).slice(-5);
+      type('i-newbranch', brName);
+      click(btn('TAMBAH'));
+      const editBranchBtnFor = name => [...appEl().querySelectorAll('button')].find(b => b.title === 'edit-branch-' + name);
+      step('cabang baru tersimpan ke DB', await waitFor(() => !!editBranchBtnFor(brName)));
+
+      click(editBranchBtnFor(brName));
+      step('mode edit cabang aktif', await waitFor(() => document.getElementById('i-newbranch')?.value === brName && has('Hapus cabang ini')));
+      const brNameRenamed = brName + 'X';
+      type('i-newbranch', brNameRenamed);
+      click(btn('SIMPAN'));
+      step('cabang berganti nama di DB', await waitFor(() => !!editBranchBtnFor(brNameRenamed) && !editBranchBtnFor(brName)));
+
+      click(editBranchBtnFor('Pleburan'));
+      step('mode edit cabang Pleburan aktif', await waitFor(() => document.getElementById('i-newbranch')?.value === 'Pleburan' && has('Hapus cabang ini')));
+      click(btn('Hapus cabang ini'));
+      step('modal konfirmasi hapus cabang muncul', await waitFor(() => has('Konfirmasi Hapus')));
+      click(btn('YA, HAPUS'));
+      step('hapus cabang berdata diblokir', await waitFor(() => has('tidak bisa dihapus')));
+
+      click(editBranchBtnFor(brNameRenamed));
+      step('mode edit cabang baru aktif lagi', await waitFor(() => document.getElementById('i-newbranch')?.value === brNameRenamed && has('Hapus cabang ini')));
+      click(btn('Hapus cabang ini'));
+      step('modal konfirmasi hapus cabang muncul lagi', await waitFor(() => has('Konfirmasi Hapus')));
+      click(btn('YA, HAPUS'));
+      step('cabang baru terhapus dari DB', await waitFor(() => !editBranchBtnFor(brNameRenamed)));
+
+      click(btn('Tutup'));
+      step('modal kelola cabang tertutup', await waitFor(() => !document.getElementById('i-newbranch')));
+
+      click(appEl().querySelector('[title="toggle-branch-menu"]'));
+      step('menu cabang lagi', await waitFor(() => has('Pilih Cabang')));
       click(btn('Semua Cabang'));
       step('agregat semua cabang', await waitFor(() => has('Performa per Cabang')));
 
@@ -63,6 +100,8 @@
       const n0 = paidBtns();
       if (n0 > 0) {
         click(btn('Tandai Lunas'));
+        step('modal konfirmasi lunas muncul', await waitFor(() => has('Konfirmasi Pelunasan')));
+        click(btn('YA, SUDAH LUNAS'));
         step('tandai lunas tersimpan', await waitFor(() => has('Tagihan ditandai lunas') && paidBtns() === n0 - 1));
       } else {
         out.push('SKIP :: tandai lunas (semua piutang sudah lunas — reset: php artisan migrate:fresh --seed)');
@@ -191,12 +230,16 @@
       step('form PO terbuka', await waitFor(() => !!document.getElementById('i-poname')));
       const supNm = 'Supplier E2E ' + String(Date.now()).slice(-5);
       type('i-poname', supNm); type('i-poamount', '1500000');
-      const podue = document.getElementById('i-podue'); podue.value = new Date(Date.now() + 7*864e5).toISOString().slice(0,10); podue.dispatchEvent(new Event('input', {bubbles:true}));
+      click(document.getElementById('custom-trig-podue'));
+      step('date picker jatuh tempo PO terbuka', await waitFor(() => has('Pilih Hari Ini')));
+      click(btn('Pilih Hari Ini'));
       click(btn('SIMPAN PO'));
       step('PO tersimpan ke DB', await waitFor(() => has(supNm) && has('Purchase Order dicatat')));
       const lunasiOf = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Lunasi');
       const nLunasi = lunasiOf().length;
-      click(lunasiOf()[lunasiOf().length - 1]); // PO terbaru = paling bawah
+      click(lunasiOf()[0]); // PO terbaru = paling atas
+      step('modal konfirmasi lunas supplier muncul', await waitFor(() => has('Konfirmasi Pelunasan')));
+      click(btn('YA, SUDAH LUNAS'));
       step('hutang supplier ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOf().length === nLunasi - 1));
 
       // promo: tambah lalu hapus
@@ -215,12 +258,44 @@
       // biaya operasional: catat sekali-ini, catat rutin (jatuh tempo besok → masuk lonceng), lunasi, hapus
       click(btn('Biaya Operasional'));
       step('layar biaya terbuka', await waitFor(() => has('Biaya Operasional Bulan Ini')));
+
+      // kelola kategori biaya: tambah, edit (rename), blokir hapus yang terpakai, hapus yang baru — lewat pop-up konfirmasi
+      click(btn('Kelola Kategori'));
+      step('modal kategori biaya terbuka', await waitFor(() => !!document.getElementById('i-newbxcat')));
+      const bxKat = 'BxKat' + String(Date.now()).slice(-5);
+      type('i-newbxcat', bxKat);
+      click(btn('TAMBAH'));
+      const editBxBtnFor = name => [...appEl().querySelectorAll('button')].find(b => b.title === 'edit-bxcat-' + name);
+      step('kategori biaya baru tersimpan ke DB', await waitFor(() => !!editBxBtnFor(bxKat)));
+
+      click(editBxBtnFor(bxKat));
+      step('mode edit kategori aktif', await waitFor(() => document.getElementById('i-newbxcat')?.value === bxKat && has('Hapus kategori ini')));
+      const bxKatRenamed = bxKat + 'X';
+      type('i-newbxcat', bxKatRenamed);
+      click(btn('SIMPAN'));
+      step('kategori biaya berganti nama di DB', await waitFor(() => !!editBxBtnFor(bxKatRenamed) && !editBxBtnFor(bxKat)));
+
+      click(editBxBtnFor('Sewa'));
+      click(btn('Hapus kategori ini'));
+      step('modal konfirmasi hapus kategori muncul', await waitFor(() => has('Konfirmasi Hapus')));
+      click(btn('YA, HAPUS'));
+      step('hapus kategori biaya terpakai diblokir', await waitFor(() => has('masih dipakai')));
+
+      click(editBxBtnFor(bxKatRenamed));
+      click(btn('Hapus kategori ini'));
+      click(btn('YA, HAPUS'));
+      step('kategori biaya terhapus dari DB', await waitFor(() => !editBxBtnFor(bxKatRenamed)));
+
+      click(btn('Tutup'));
+      step('modal kategori biaya tertutup', await waitFor(() => !document.getElementById('i-newbxcat')));
+
       click(btn('+ Catat Biaya'));
       step('form biaya terbuka', await waitFor(() => !!document.getElementById('i-bxamount')));
       const bxNote = 'Printilan E2E ' + String(Date.now()).slice(-5);
       type('i-bxnote', bxNote); type('i-bxamount', '25000');
-      const bxDateEl = document.getElementById('i-bxdate');
-      bxDateEl.value = new Date().toISOString().slice(0,10); bxDateEl.dispatchEvent(new Event('input', {bubbles:true}));
+      click(document.getElementById('custom-trig-bxdate'));
+      step('date picker biaya terbuka', await waitFor(() => has('Pilih Hari Ini')));
+      click(btn('Pilih Hari Ini'));
       click(btn('SIMPAN BIAYA'));
       step('biaya sekali-ini tersimpan ke DB', await waitFor(() => has(bxNote) && has('Biaya tercatat')));
 
@@ -250,22 +325,36 @@
       click(myLunasiBtn());
       step('biaya rutin ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOfBiaya().length === nLunasiBefore - 1));
 
-      const delBiayaBtn = () => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('hapus-biaya-') && b.closest('div').textContent.includes(bxNote));
-      click(delBiayaBtn());
-      step('biaya sekali-ini terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has(bxNote)));
+      // edit biaya sekali-ini: ganti keterangan → tersimpan (bukan tombol hapus langsung di baris lagi)
+      const editBiayaBtnFor = text => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('edit-biaya-') && b.closest('div').textContent.includes(text));
+      click(editBiayaBtnFor(bxNote));
+      step('form edit biaya terbuka terisi', await waitFor(() => has('Edit Biaya') && document.getElementById('i-bxnote')?.value === bxNote));
+      const bxNoteEdited = 'Diedit E2E ' + String(Date.now()).slice(-5);
+      type('i-bxnote', bxNoteEdited);
+      click(btn('SIMPAN BIAYA'));
+      step('biaya sekali-ini berhasil diedit', await waitFor(() => has('Biaya diperbarui') && has(bxNoteEdited) && !has(bxNote)));
+
+      // lalu hapus lewat Edit → Hapus Biaya Ini → pop-up konfirmasi
+      click(editBiayaBtnFor(bxNoteEdited));
+      click(btn('Hapus Biaya Ini'));
+      step('modal konfirmasi hapus biaya muncul', await waitFor(() => has('Konfirmasi Hapus')));
+      click(btn('YA, HAPUS'));
+      step('biaya sekali-ini terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has(bxNoteEdited)));
 
       // hapus juga baris rutin (Rp35.000) — kalau dibiarkan, catchUpRecurringExpenses() di backend
       // meng-klon baris rutin PALING BARU per (cabang, kategori) jadi template bulan depan, jadi sisa
       // baris tes ini bisa membajak nominal/tanggal jatuh tempo yang ter-generate untuk "Sewa" asli
-      const delRecurringBiayaBtn = () => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('hapus-biaya-') && b.closest('div').textContent.includes('Rp35.000'));
-      click(delRecurringBiayaBtn());
+      click(editBiayaBtnFor('Rp35.000'));
+      step('form edit biaya rutin terbuka terisi', await waitFor(() => has('Edit Biaya') && document.getElementById('i-bxamount')?.value === '35000'));
+      click(btn('Hapus Biaya Ini'));
+      click(btn('YA, HAPUS'));
       step('biaya rutin terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has('Rp35.000')));
 
       // tambah produk (admin) — form fungsional, tersimpan ke DB
       click(btn('Produk & Harga'));
       step('layar produk terbuka', await waitFor(() => has('Margin') && btn('+ Tambah Produk')));
       click(btn('+ Tambah Produk'));
-      step('form tambah produk terbuka', await waitFor(() => !!document.getElementById('i-pname') && !!document.getElementById('i-pbranch')));
+      step('form tambah produk terbuka', await waitFor(() => !!document.getElementById('i-pname') && !!document.getElementById('custom-trig-pbranch')));
       const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
       type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
       step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));

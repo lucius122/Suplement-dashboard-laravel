@@ -30,11 +30,17 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::delete('/promos/{promo}', [StoreController::class, 'deletePromo']);
     Route::get('/expenses', [StoreController::class, 'expenses']);
     Route::post('/expenses', [StoreController::class, 'storeExpense']);
+    Route::patch('/expenses/{expense}', [StoreController::class, 'updateExpense']);
     Route::post('/expenses/{expense}/pay', [StoreController::class, 'payExpense']);
     Route::delete('/expenses/{expense}', [StoreController::class, 'deleteExpense']);
     Route::post('/branches', [StoreController::class, 'storeBranch']);
+    Route::patch('/branches/{branch}', [StoreController::class, 'updateBranch']);
+    Route::delete('/branches/{branch}', [StoreController::class, 'deleteBranch']);
     Route::post('/categories', [StoreController::class, 'storeCategory']);
     Route::delete('/categories/{category}', [StoreController::class, 'deleteCategory']);
+    Route::post('/expense-categories', [StoreController::class, 'storeExpenseCategory']);
+    Route::patch('/expense-categories/{expenseCategory}', [StoreController::class, 'updateExpenseCategory']);
+    Route::delete('/expense-categories/{expenseCategory}', [StoreController::class, 'deleteExpenseCategory']);
     Route::post('/users', [StoreController::class, 'storeUser']);
     Route::post('/users/{user}/toggle', [StoreController::class, 'toggleUser']);
 });

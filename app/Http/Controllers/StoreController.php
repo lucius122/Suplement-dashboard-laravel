@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\Product;
 use App\Models\Promo;
 use App\Models\Receivable;
@@ -24,7 +25,7 @@ class StoreController extends Controller
     public function bootstrap()
     {
         return response()->json([
-            'branches' => Branch::orderBy('id')->pluck('name'),
+            'branches' => Branch::orderBy('id')->get(['id', 'name']),
             'categories' => Category::orderBy('id')->get(['id', 'name']),
             'products' => Product::with('branch')->orderBy('id')->get()->map(fn ($p) => [
                 'id' => $p->id, 'name' => $p->name, 'varian' => $p->varian,
@@ -32,7 +33,7 @@ class StoreController extends Controller
                 'barcode' => $p->barcode, 'exp' => $p->exp, 'stok' => $p->stok,
                 'cabang' => $p->branch->name, 'photo' => $p->photo, 'custom' => $p->custom,
             ]),
-            'receivables' => Receivable::with('branch')->orderBy('id')->get()->map(fn ($r) => [
+            'receivables' => Receivable::with('branch')->orderByDesc('id')->get()->map(fn ($r) => [
                 'id' => $r->id, 'name' => $r->name, 'amount' => $r->amount,
                 'trx' => $r->trx_date->toDateString(), 'due' => $r->due_date->toDateString(),
                 'cabang' => $r->branch->name, 'paid' => $r->paid,
@@ -41,7 +42,7 @@ class StoreController extends Controller
                 'id' => $u->id, 'name' => $u->name, 'uname' => $u->username,
                 'role' => $u->role, 'cabang' => $u->branch?->name ?? '-', 'active' => $u->active,
             ]),
-            'suppliers' => Supplier::orderBy('id')->get()->map(fn ($s) => [
+            'suppliers' => Supplier::orderByDesc('id')->get()->map(fn ($s) => [
                 'id' => $s->id, 'name' => $s->name, 'amount' => $s->amount,
                 'due' => $s->due_date->toDateString(), 'paid' => $s->paid,
             ]),
@@ -229,6 +230,7 @@ class StoreController extends Controller
                 'dueDay' => $e->due_day, 'date' => $e->date->toDateString(),
                 'cabang' => $e->branch->name, 'paid' => $e->paid,
             ]),
+            'expenseCategories' => ExpenseCategory::orderBy('id')->get(['id', 'name']),
         ]);
     }
 
@@ -498,7 +500,7 @@ class StoreController extends Controller
     {
         $this->assertAdmin($request);
         $data = $request->validate([
-            'category' => ['required', Rule::in(['Sewa', 'Listrik', 'Sampah', 'Plastik', 'Lainnya'])],
+            'category' => ['required', 'string', 'max:40', Rule::exists('expense_categories', 'name')],
             'note' => ['nullable', 'string', 'max:150'],
             'amount' => ['required', 'integer', 'min:1'],
             'branch' => ['required', 'string', 'exists:branches,name'],
@@ -522,6 +524,41 @@ class StoreController extends Controller
             'due_day' => $recurring ? $data['dueDay'] : null,
             'date' => $date,
             'paid' => ! $recurring, // rutin = tagihan yg belum dibayar; sekali-ini = sudah terjadi/lunas saat itu juga
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function updateExpense(Request $request, Expense $expense)
+    {
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'category' => ['required', 'string', 'max:40', Rule::exists('expense_categories', 'name')],
+            'note' => ['nullable', 'string', 'max:150'],
+            'amount' => ['required', 'integer', 'min:1'],
+            'branch' => ['required', 'string', 'exists:branches,name'],
+            'recurring' => ['required', 'boolean'],
+            'dueDay' => [Rule::requiredIf((bool) $request->input('recurring')), 'nullable', 'integer', 'min:1', 'max:31'],
+            'date' => [Rule::requiredIf(! $request->input('recurring')), 'nullable', 'date'],
+        ]);
+
+        // Jenis (sekali-ini/rutin) dikunci di form edit FE — recurring yg dikirim selalu
+        // sama dengan data lama, jadi 'paid' sengaja TIDAK disentuh di sini (beda dgn
+        // storeExpense yg menyimpulkan paid dari recurring saat catatan baru dibuat).
+        $recurring = $data['recurring'];
+        $today = now();
+        $date = $recurring
+            ? $today->copy()->startOfMonth()->addDays(min((int) $data['dueDay'], $today->daysInMonth) - 1)
+            : $data['date'];
+
+        $expense->update([
+            'branch_id' => Branch::where('name', $data['branch'])->value('id'),
+            'category' => $data['category'],
+            'note' => trim($data['note'] ?? '') ?: null,
+            'amount' => $data['amount'],
+            'is_recurring' => $recurring,
+            'due_day' => $recurring ? $data['dueDay'] : null,
+            'date' => $date,
         ]);
 
         return response()->json(['ok' => true]);
@@ -558,6 +595,39 @@ class StoreController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function updateBranch(Request $request, Branch $branch)
+    {
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:60'],
+        ]);
+        $name = trim($data['name']);
+        if (strcasecmp($name, 'Semua') === 0 || Branch::whereRaw('LOWER(name) = ?', [strtolower($name)])->where('id', '!=', $branch->id)->exists()) {
+            return response()->json(['message' => "Cabang \"{$name}\" sudah ada"], 422);
+        }
+        // branch_id di semua tabel terkait adalah foreign key (bukan string spt kategori
+        // biaya), jadi rename di sini otomatis "terlihat" di mana pun tanpa cascade manual.
+        $branch->update(['name' => $name]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteBranch(Request $request, Branch $branch)
+    {
+        $this->assertAdmin($request);
+        $used = Product::where('branch_id', $branch->id)->exists()
+            || User::where('branch_id', $branch->id)->exists()
+            || Transaction::where('branch_id', $branch->id)->exists()
+            || Receivable::where('branch_id', $branch->id)->exists()
+            || Expense::where('branch_id', $branch->id)->exists();
+        if ($used) {
+            return response()->json(['message' => 'Cabang "'.$branch->name.'" masih punya data terkait (produk/user/transaksi/piutang/biaya), tidak bisa dihapus'], 422);
+        }
+        $branch->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
     public function storeCategory(Request $request)
     {
         $this->assertAdmin($request);
@@ -579,6 +649,48 @@ class StoreController extends Controller
             return response()->json(['message' => 'Kategori "'.$category->name.'" masih dipakai '.$used.' produk'], 422);
         }
         $category->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeExpenseCategory(Request $request)
+    {
+        $this->assertAdmin($request);
+        $data = $request->validate(['name' => ['required', 'string', 'max:40']]);
+        $name = trim($data['name']);
+        if (ExpenseCategory::whereRaw('LOWER(name) = ?', [strtolower($name)])->exists()) {
+            return response()->json(['message' => 'Kategori "'.$name.'" sudah ada'], 422);
+        }
+        ExpenseCategory::create(['name' => $name]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function updateExpenseCategory(Request $request, ExpenseCategory $expenseCategory)
+    {
+        $this->assertAdmin($request);
+        $data = $request->validate(['name' => ['required', 'string', 'max:40']]);
+        $name = trim($data['name']);
+        if (ExpenseCategory::whereRaw('LOWER(name) = ?', [strtolower($name)])->where('id', '!=', $expenseCategory->id)->exists()) {
+            return response()->json(['message' => 'Kategori "'.$name.'" sudah ada'], 422);
+        }
+        // category di tabel expenses cuma string biasa (bukan foreign key) — ikut
+        // diganti di sini supaya catatan biaya lama tidak "yatim" dari nama barunya.
+        $oldName = $expenseCategory->name;
+        $expenseCategory->update(['name' => $name]);
+        Expense::where('category', $oldName)->update(['category' => $name]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteExpenseCategory(Request $request, ExpenseCategory $expenseCategory)
+    {
+        $this->assertAdmin($request);
+        $used = Expense::where('category', $expenseCategory->name)->count();
+        if ($used > 0) {
+            return response()->json(['message' => 'Kategori "'.$expenseCategory->name.'" masih dipakai '.$used.' catatan biaya'], 422);
+        }
+        $expenseCategory->delete();
 
         return response()->json(['ok' => true]);
     }
