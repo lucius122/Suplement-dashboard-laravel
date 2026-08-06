@@ -35,6 +35,7 @@ async function loadAll(){
     if(S.period === 'Bulanan') await loadYearly(new Date().getFullYear());
     else if(S.period === 'Tahunan') await loadYearly(S.selYear);
     await loadExpenses();
+    pushDueNotif(); // biaya sudah termuat → notifikasi desktop bisa menghitung keduanya
   }
 }
 async function loadExpenses(){
@@ -89,6 +90,8 @@ let S = {
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
   promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
+  histId:null, histName:'', histRows:null,                  // modal riwayat stok (histId null = tutup, histRows null = masih memuat)
+  salesDate:'', salesDateData:null,                         // laporan penjualan per tanggal ('' = belum dipilih, data null = memuat)
   scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
   scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
   biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
@@ -566,6 +569,56 @@ function handleScanResult(code){
   setState({ restockId:p.id, restockQty:'' });
   flash(p.name+' ditemukan — masukkan jumlah stok');
 }
+// laporan penjualan pada satu tanggal (barang apa yang laku hari itu) — on-demand,
+// ikut cabang yang sedang dipilih di topbar.
+async function loadSalesByDate(tanggal){
+  if(!tanggal) return;
+  setState({ salesDate:tanggal, salesDateData:null });
+  try {
+    const r = await api('/api/sales-by-date?date=' + encodeURIComponent(tanggal) + '&branch=' + encodeURIComponent(S.branch));
+    if(S.salesDate === tanggal) setState({ salesDateData:r });   // abaikan kalau user sudah ganti tanggal
+  } catch(e){ setState({ salesDate:'', salesDateData:null }); flash(e.message); }
+}
+
+/* ---- notifikasi jatuh tempo di taskbar/low bar desktop (Web Notification API) ----
+   Browser hanya mengizinkan permintaan izin dari gestur user, jadi tombol
+   pengaktifnya ada di panel lonceng — bukan auto-prompt saat halaman dibuka.
+   notifSent mencegah item yang sama dinotifikasi berulang tiap loadAll(). */
+const notifSent = new Set();
+function notifSupported(){ return typeof window !== 'undefined' && 'Notification' in window; }
+function notifStatus(){ return notifSupported() ? Notification.permission : 'unsupported'; }
+async function enableDesktopNotif(){
+  if(!notifSupported()){ flash('Browser ini tidak mendukung notifikasi desktop'); return; }
+  try {
+    const p = await Notification.requestPermission();
+    if(p === 'granted'){ flash('Notifikasi desktop aktif'); pushDueNotif(); }
+    else flash('Izin notifikasi ditolak — bisa diubah di setelan browser');
+    render();
+  } catch(e){ flash('Gagal meminta izin notifikasi'); }
+}
+// dipanggil tiap data selesai dimuat; hanya kirim yang belum pernah dikirim sesi ini
+function pushDueNotif(){
+  if(notifStatus() !== 'granted' || !(USER && USER.role === 'admin')) return;
+  const items = [
+    ...recvView().filter(r => r.soon).map(r => ({ k:'p'+r.id, judul:'Piutang jatuh tempo', isi:r.name+' · '+rp(r.amount) })),
+    ...expenseDueView().filter(e => e.soon).map(e => ({ k:'b'+e.id, judul:'Biaya jatuh tempo', isi:e.category+' · '+rp(e.amount) })),
+  ];
+  items.slice(0, 5).forEach(it => {                 // dibatasi 5 supaya tidak membanjiri
+    if(notifSent.has(it.k)) return;
+    notifSent.add(it.k);
+    try { new Notification(it.judul, { body: it.isi, tag: it.k }); } catch(e){}
+  });
+}
+
+// riwayat stok satu produk (track record masuk/keluar) — dimuat saat modal dibuka,
+// tidak di-cache karena harus selalu mencerminkan mutasi terbaru.
+async function openStockHistory(p){
+  setState({ histId:p.id, histName:p.name+' · '+p.varian, histRows:null });
+  try {
+    const r = await api('/api/products/'+p.id+'/movements');
+    if(S.histId === p.id) setState({ histRows:r.movements });   // abaikan kalau user sudah pindah/tutup
+  } catch(e){ setState({ histId:null, histRows:null }); flash(e.message); }
+}
 function stopScan(){
   clearInterval(scanTimer); scanTimer = null;
   if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
@@ -802,7 +855,8 @@ function expenseDueView(){
   });
 }
 function allBranches(){ return DB.branches.map(b=>b.name); }
-const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], top:[] };
+const EMPTY_DASH = { today:0, trend:'', tunai:0, market:0, tempo:0, month:0, trx:0, week:[], weeks:[], weekNow:0,
+  weekMethods:{tunai:0,market:0,tempo:0}, monthMethods:{tunai:0,market:0,tempo:0}, top:[] };
 function getDash(b){
   if(DB.dash[b]) return DB.dash[b];
   if(b==='Semua'){
@@ -811,14 +865,22 @@ function getDash(b){
     const sum = k => list.reduce((s,d)=>s+(d[k]||0),0);
     const maxWeek = list.reduce((a,d)=>d.week.length>a.length?d.week:a, []);
     const week = maxWeek.map((w,i)=>({ label:w.label, v: +list.reduce((s,d)=>s+((d.week[i]||{}).v||0),0).toFixed(2) }));
+    const maxWeeks = list.reduce((a,d)=>(d.weeks||[]).length>a.length?d.weeks:a, []);
+    const weeks = maxWeeks.map((w,i)=>({ label:w.label, v: +list.reduce((s,d)=>s+(((d.weeks||[])[i]||{}).v||0),0).toFixed(2) }));
     const tops = {};
     list.forEach(d=>d.top.forEach(t=>{ tops[t.name]=(tops[t.name]||0)+t.sold; }));
     const top = Object.entries(tops).map(([name,sold])=>({name,sold})).sort((a,b)=>b.sold-a.sold).slice(0,5);
-    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), trx:sum('trx'), week, top, semua:true };
+    const sumM = k => list.reduce((a,d)=>{ const m=d[k]||{};
+      return { tunai:a.tunai+(m.tunai||0), market:a.market+(m.market||0), tempo:a.tempo+(m.tempo||0) }; }, {tunai:0,market:0,tempo:0});
+    return { today:sum('today'), trend:'', tunai:sum('tunai'), market:sum('market'), tempo:sum('tempo'), month:sum('month'), trx:sum('trx'), week, weeks, weekNow:sum('weekNow'),
+      weekMethods:sumM('weekMethods'), monthMethods:sumM('monthMethods'), top, semua:true };
   }
   return EMPTY_DASH;
 }
-const EMPTY_YEARLY = { months:[], year:0 };
+const EMPTY_METHODS = { tunai:0, market:0, tempo:0 };
+const sumMethods = list => list.reduce((a,d)=>{ const m=d.methods||EMPTY_METHODS;
+  return { tunai:a.tunai+(m.tunai||0), market:a.market+(m.market||0), tempo:a.tempo+(m.tempo||0) }; }, {...EMPTY_METHODS});
+const EMPTY_YEARLY = { months:[], year:0, methods:EMPTY_METHODS };
 function getYearly(b, year){
   const y = DB.yearly[year];
   if(!y) return null; // belum termuat (loadYearly sedang jalan / belum dipicu)
@@ -828,7 +890,7 @@ function getYearly(b, year){
     if(!list.length) return EMPTY_YEARLY;
     const maxMonths = list.reduce((a,d)=>d.months.length>a.length?d.months:a, []);
     const months = maxMonths.map((m,i)=>({ label:m.label, v: +list.reduce((s,d)=>s+((d.months[i]||{}).v||0),0).toFixed(2) }));
-    return { months, year: list.reduce((s,d)=>s+d.year,0) };
+    return { months, year: list.reduce((s,d)=>s+d.year,0), methods: sumMethods(list) };
   }
   return EMPTY_YEARLY;
 }
@@ -951,7 +1013,7 @@ function renderVals(){
   const stokRows = DB.products.filter(p=>(branch==='Semua'||p.cabang===branch) && (S.stokCat==='Semua'||p.kategori===S.stokCat)).map(p=>{
     let st,c,bg; if(p.stok<=0){st='Habis';c='var(--danger)';bg='var(--dangertint)';} else if(p.stok<=5){st='Menipis';c='var(--warn)';bg='var(--warntint)';} else {st='Aman';c='var(--ok)';bg='var(--oktint)';}
     return { name:p.name, varian:p.varian, kategori:p.kategori, stokText:p.stok+' pcs', status:st, color:c, bg,
-      onRestock:()=>setState({restockId:p.id, restockQty:''}) };
+      onRestock:()=>setState({restockId:p.id, restockQty:''}), onHistory:()=>openStockHistory(p) };
   });
   const catChips = cats.map(c=>({ label:c, ...chip(S.stokCat===c), onClick:()=>setState({stokCat:c}) }));
 
@@ -976,14 +1038,12 @@ function renderVals(){
       warnIcon:ic('warn', expB?expB.c:'var(--muted)', 13) };
   });
 
-  const dtot = D.today || 1;
-  const ratios={tunai:D.tunai/dtot, market:D.market/dtot, tempo:D.tempo/dtot};
   const curYear = new Date().getFullYear();
   const yCurrent = getYearly(branch, curYear);   // Bulanan = tahun berjalan
   const ySel = getYearly(branch, S.selYear);     // Tahunan = tahun pilihan (bisa beda dari curYear)
   const lapMap={
     Harian:{ total:D.today, bars:D.week.map(w=>({label:w.label, v:w.v})) },
-    Mingguan:{ total:Math.round(D.month/4), bars:[{label:'Mg 1',v:D.month/4*0.9/1e6},{label:'Mg 2',v:D.month/4*1.05/1e6},{label:'Mg 3',v:D.month/4*0.95/1e6},{label:'Mg 4',v:D.month/4*1.1/1e6}] },
+    Mingguan:{ total:D.weekNow||0, bars:(D.weeks||[]).map(w=>({label:w.label, v:w.v})) }, // data asli (4 minggu kalender terakhir)
     Bulanan:{ total:D.month, bars:(yCurrent?.months||[]).slice(-6) }, // 6 bulan terakhir (data asli)
     Tahunan:{ total:(ySel?.year)||0, bars:ySel?.months||[] },         // tahun pilihan, data asli
   };
@@ -994,7 +1054,16 @@ function renderVals(){
   const lapBars=lapSel.bars.map((b,i)=>({label:b.label, valText:b.v.toFixed(1), h:(b.v/lmax*100).toFixed(0)+'%',
     fill:i===lapSel.bars.length-1?'linear-gradient(180deg,var(--goldhi),var(--gold))':'var(--barempty)', valColor:i===lapSel.bars.length-1?'var(--gold)':'var(--muted)'}));
   const lapTotal=lapSel.total;
-  const lapMethods=[{label:'Tunai',amt:lapTotal*ratios.tunai,color:'var(--ok)'},{label:'Marketplace',amt:lapTotal*ratios.market,color:'var(--info)'},{label:'Tempo',amt:lapTotal*ratios.tempo,color:'var(--warn)'}]
+  // Rincian metode bayar diambil dari agregasi periode YANG BERSANGKUTAN. Dulu dihitung
+  // lapTotal × rasio metode HARI INI — jadi angka Bulanan/Tahunan tidak pernah benar
+  // kecuali komposisi pembayaran hari ini kebetulan sama dgn seluruh periode.
+  const lapMSel = ({
+    Harian:   { tunai:D.tunai, market:D.market, tempo:D.tempo },
+    Mingguan: D.weekMethods,
+    Bulanan:  D.monthMethods,
+    Tahunan:  ySel?.methods,
+  })[S.period] || EMPTY_METHODS;
+  const lapMethods=[{label:'Tunai',amt:lapMSel.tunai||0,color:'var(--ok)'},{label:'Marketplace',amt:lapMSel.market||0,color:'var(--info)'},{label:'Tempo',amt:lapMSel.tempo||0,color:'var(--warn)'}]
     .map(m=>({label:m.label, amountText:rp(m.amt), w:(m.amt/(lapTotal||1)*100).toFixed(0)+'%', color:m.color}));
   const periodChips=['Harian','Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.period===p), onClick:()=>changePeriod(p)}));
   // panah pilih tahun (tampil hanya saat tab Tahunan) — dibatasi 5 tahun ke belakang;
@@ -1189,6 +1258,9 @@ function renderVals(){
     roleLabel: S.role==='admin' ? 'Admin / Owner' : 'Kasir',
 
     bell:S.bell, bellCount, bellItems,
+    notifOffer: notifStatus() === 'default',        // tawarkan hanya kalau belum ditentukan
+    notifBlocked: notifStatus() === 'denied',
+    enableDesktopNotif:()=>enableDesktopNotif(),
     toggleBell:()=>setState({bell:!S.bell}), closeBell:()=>setState({bell:false}),
     goTempoFromBell:()=> S.role==='admin' ? setState({bell:false, screen:'tempo'}) : setState({bell:false}),
 
@@ -1232,6 +1304,10 @@ function renderVals(){
     piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0, piutangTotalText:rp(piutangTotal),
     tempoRows, tempoEmpty:tempoRows.length===0,
     stokRows, catChips, openScanStok:()=>startScan('stok'), stokEmpty:stokRows.length===0,
+    histOpen: S.histId!==null, histName:S.histName, histRows:S.histRows||[],
+    histLoading: S.histId!==null && S.histRows===null,
+    histEmpty: S.histRows!==null && (S.histRows||[]).length===0,
+    closeHist:()=>setState({histId:null, histRows:null}),
     catForm:S.catForm, newCat:S.newCat,
     openCatForm:()=>setState({catForm:true, newCat:''}),
     closeCatForm:()=>setState({catForm:false}),
@@ -1267,6 +1343,14 @@ function renderVals(){
     pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
     openScan:()=>startScan('pbarcode'), // tombol scan di form produk → isi kolom barcode
     saveProd:()=>saveProduct(),
+    salesDate:S.salesDate,
+    salesDateLoading: !!S.salesDate && S.salesDateData === null,
+    salesDateEmpty: !!S.salesDateData && (S.salesDateData.items||[]).length === 0,
+    salesDateOmsetText: rp((S.salesDateData||{}).omset || 0),
+    salesDateTrx: ((S.salesDateData||{}).trx || 0) + ' transaksi',
+    salesDateRows: ((S.salesDateData||{}).items || []).map(r=>({
+      name:r.name, varian:r.varian, qtyText:r.qty+' pcs', totalText:rp(r.total) })),
+
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
     lapLoading, selYearText:String(S.selYear), onPrevYear, onNextYear,
     uPeriod:S.uPeriod,
@@ -1735,8 +1819,8 @@ function loginHtml(V){
       <div style="background:var(--panel); padding:56px 48px; display:flex; flex-direction:column; justify-content:center;">
         <h1 style="font-family:'Saira',sans-serif;font-weight:800;font-size:26px;margin:0 0 6px;">Masuk ke Sistem</h1>
         <p style="color:var(--muted);font-size:13.5px;margin:0 0 28px;">Sistem akan mengenali peran Anda otomatis.</p>
-        <label style="font-family:'Saira',sans-serif;font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;display:block;">Username</label>
-        <input id="i-uname" value="${esc(V.uname)}" ${I(V.onUname)} placeholder="admin atau kasir" style="width:100%;height:50px;border-radius:13px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;padding:0 16px;outline:none;font-family:'Hanken Grotesk',sans-serif;margin-bottom:16px;">
+        <label style="font-family:'Saira',sans-serif;font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;display:block;">Username atau Email</label>
+        <input id="i-uname" value="${esc(V.uname)}" ${I(V.onUname)} placeholder="admin / admin@suplemen.local" style="width:100%;height:50px;border-radius:13px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;padding:0 16px;outline:none;font-family:'Hanken Grotesk',sans-serif;margin-bottom:16px;">
         <label style="font-family:'Saira',sans-serif;font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;display:block;">Password</label>
         <input id="i-pass" value="${esc(V.pass)}" ${I(V.onPass)} type="password" placeholder="••••••••" style="width:100%;height:50px;border-radius:13px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:15px;padding:0 16px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
         ${V.loginErr ? `<div style="color:var(--danger);font-size:13px;margin-top:12px;">${esc(V.loginErr)}</div>` : ''}
@@ -1969,7 +2053,7 @@ function secStokHtml(V){
             <span><span style="font-weight:600;">${esc(p.name)}</span> <span style="color:var(--muted);">· ${esc(p.varian)}</span></span>
             <span style="color:var(--muted);">${p.kategori}</span>
             <span style="display:flex;align-items:center;gap:8px;"><span style="font-family:'Saira',sans-serif;font-weight:700;">${p.stokText}</span><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="height:26px;padding:0 9px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></span>
-            <span style="text-align:right;">${badge(p.color,p.bg,p.status)}</span>
+            <span style="text-align:right;display:flex;gap:8px;justify-content:flex-end;align-items:center;">${badge(p.color,p.bg,p.status)}<button ${A(p.onHistory)} title="riwayat-${esc(p.name)}" style="height:26px;padding:0 10px;border-radius:8px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:11.5px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Riwayat</button></span>
           </div>`).join('')}
       </div>` : `
       <div style="display:flex;flex-direction:column;gap:9px;">
@@ -1982,7 +2066,10 @@ function secStokHtml(V){
             <div style="text-align:right;flex:none;">
               <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${p.stokText}</div>
               <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;color:${p.color};background:${p.bg};display:inline-block;margin-top:3px;">${p.status}</span>
-              <div><button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="margin-top:6px;height:26px;padding:0 10px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button></div>
+              <div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end;">
+                <button ${A(p.onRestock)} title="restok-${esc(p.name)}" style="height:26px;padding:0 10px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">+ Stok</button>
+                <button ${A(p.onHistory)} title="riwayat-${esc(p.name)}" style="height:26px;padding:0 10px;border-radius:8px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:11px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Riwayat</button>
+              </div>
             </div>
           </div>`).join('')}
       </div>`}
@@ -2162,6 +2249,43 @@ function secLaporanHtml(V){
           <span style="white-space:nowrap;"><span style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;color:var(--text);">${V.memberTotalText}</span> <span style="color:var(--muted);font-size:12px;">· ${V.memberTrxText}</span></span>
         </div>`}
       </div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:18px;padding:20px;margin-top:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+        <div>
+          <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;">Penjualan per Tanggal</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;">Lihat barang apa saja yang laku pada hari tertentu</div>
+        </div>
+        <div style="min-width:190px;">${customDatePickerHtml('saldate', V.salesDate, (v)=>loadSalesByDate(v), 'Pilih tanggal...', 42)}</div>
+      </div>
+      ${!V.salesDate ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Pilih tanggal untuk melihat rincian penjualan hari itu.</div>` : ''}
+      ${V.salesDateLoading ? `<div style="padding:26px;text-align:center;color:var(--muted);font-size:13px;">Memuat…</div>` : ''}
+      ${V.salesDateEmpty ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Tidak ada penjualan pada tanggal ini.</div>` : ''}
+      ${V.salesDateRows.length ? `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+          <div style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;">
+            <div style="font-size:11.5px;color:var(--muted);">Omset Hari Itu</div>
+            <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin-top:3px;">${V.salesDateOmsetText}</div>
+          </div>
+          <div style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;">
+            <div style="font-size:11.5px;color:var(--muted);">Jumlah Transaksi</div>
+            <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin-top:3px;">${V.salesDateTrx}</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${V.salesDateRows.map(r => `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 14px;">
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:600;">${esc(r.name)}</div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${esc(r.varian)}</div>
+              </div>
+              <div style="text-align:right;flex:none;">
+                <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;">${r.qtyText}</div>
+                <div style="font-size:11.5px;color:var(--muted);">${r.totalText}</div>
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
     </div>
   </div>`;
 }
@@ -2482,6 +2606,11 @@ function bellHtml(V){
           <span style="font-size:11.5px;font-weight:700;color:${n.dueColor};white-space:nowrap;font-family:'Saira',sans-serif;">${n.dueText}</span>
         </div>`).join('')}
     </div>
+    ${V.notifOffer ? `<button ${A(V.enableDesktopNotif)} style="width:100%;padding:13px;background:var(--goldtint);border:none;border-top:1px solid var(--border2);color:var(--gold);font-size:12.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      Aktifkan notifikasi desktop
+    </button>` : ''}
+    ${V.notifBlocked ? `<div style="padding:11px 18px;border-top:1px solid var(--border2);font-size:11.5px;color:var(--dim2);text-align:center;">Notifikasi desktop diblokir browser — aktifkan lewat ikon gembok di address bar.</div>` : ''}
     <button ${A(V.goTempoFromBell)} style="width:100%;padding:14px;background:none;border:none;border-top:1px solid var(--border2);color:var(--gold);font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lihat semua jatuh tempo ›</button>
   </div>`;
 }
@@ -2615,7 +2744,7 @@ function prodFormHtml(V){
     <div style="display:flex;flex-direction:column;gap:14px;">
       <div>${lbl('Nama Produk')}<input id="i-pname" value="${esc(V.pName)}" ${I(V.onPName)} placeholder="Nama produk" style="${inputStyle(48)}"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>${lbl('Varian')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="Rasa / ukuran" style="${inputStyle(48)}"></div>
+        <div>${lbl('Varian Berat / Ukuran')}<input id="i-pvar" value="${esc(V.pVar)}" ${I(V.onPVar)} placeholder="cnt. 2lb / 900gr / 60 tab" style="${inputStyle(48)}"></div>
         <div>${lbl('Kategori')}${customSelectHtml('pkat', V.pKat, V.kCatOptions, (v) => setState({ pKat: v }), 'Pilih kategori...')}</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
@@ -2842,6 +2971,36 @@ function restockHtml(V){
   </div>`;
 }
 
+function stockHistoryHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(520px, calc(100vw - 32px))';
+  const fmtWaktu = s => { const d=new Date(String(s).replace(' ','T')); return isNaN(d.getTime()) ? esc(s)
+    : d.getDate()+' '+MON[d.getMonth()]+' '+d.getFullYear()+' · '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  return `
+  <div ${A(V.closeHist)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('hist')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Riwayat Stok</h3>
+      <button ${A(V.closeHist)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">${esc(V.histName)}</p>
+    ${V.histLoading ? `<div style="padding:34px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Memuat riwayat…</div>` : ''}
+    ${V.histEmpty ? `<div style="padding:34px 20px;text-align:center;color:var(--muted);font-size:13.5px;">Belum ada mutasi stok untuk produk ini.<br><span style="font-size:12px;color:var(--dim2);">Riwayat mulai tercatat sejak fitur ini aktif.</span></div>` : ''}
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${V.histRows.map(m => { const masuk = m.type === 'masuk';
+        return `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 14px;">
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:600;color:${masuk?'var(--ok)':'var(--dangersoft)'};">${masuk?'Masuk':'Keluar'}${m.note?` · ${esc(m.note)}`:''}</div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${fmtWaktu(m.tanggal)}${m.nota?` · nota #${m.nota}`:''}${m.oleh?` · ${esc(m.oleh)}`:''}</div>
+          </div>
+          <span style="flex:none;font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:${masuk?'var(--ok)':'var(--dangersoft)'};">${masuk?'+':'−'}${m.qty}</span>
+        </div>`; }).join('')}
+    </div>
+    <button ${A(V.closeHist)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+  </div>`;
+}
+
 function toastHtml(V){
   return `
   <div style="position:fixed;bottom:32px;left:50%;transform:translateX(-50%);z-index:60;background:var(--chip);border:1px solid var(--goldborder);border-radius:14px;padding:14px 22px;display:flex;align-items:center;gap:11px;box-shadow:0 16px 36px -10px var(--shadowc);${V.popToast}white-space:nowrap;">
@@ -2872,6 +3031,7 @@ function html(V){
     ${V.bxCatForm ? bxCatFormHtml(V) : ''}
     ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
+    ${V.histOpen ? stockHistoryHtml(V) : ''}
     ${V.confirmPay ? confirmPayHtml(V) : ''}
     ${V.confirmDelete ? confirmDeleteHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
@@ -2890,7 +3050,7 @@ function render(){
   const sameScreen = S.screen === lastScreen;
   const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
-    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null,
+    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null, hist:S.histId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';

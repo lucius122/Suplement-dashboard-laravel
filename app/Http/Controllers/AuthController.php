@@ -25,9 +25,14 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::where('username', strtolower(trim($data['username'])))->first();
+        // Satu kolom isian menerima username ATAU email — dibedakan dari ada tidaknya
+        // "@", jadi kasir tetap bisa login singkat sementara admin boleh pakai email.
+        $login = strtolower(trim($data['username']));
+        $kolom = str_contains($login, '@') ? 'email' : 'username';
+
+        $user = User::where($kolom, $login)->first();
         if (! $user || ! Hash::check($data['password'], $user->password)) {
-            return response()->json(['message' => 'Username atau password salah.'], 401);
+            return response()->json(['message' => 'Username/email atau password salah.'], 401);
         }
         if (! $user->active) {
             return response()->json(['message' => 'Akun ini sudah dinonaktifkan.'], 403);

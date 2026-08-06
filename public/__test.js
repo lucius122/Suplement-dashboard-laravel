@@ -1,6 +1,8 @@
 /* Tes e2e headless: buka /?e2e=1 lalu baca div#results. Boleh dihapus kapan saja. */
 (function(){
   window.__errors = window.__errors || [];
+  // Error JS diteruskan ke <title> juga: kalau skrip menggantung sebelum finish(),
+  // RESULTS[] tak pernah ditulis — judul halaman jadi satu-satunya jejak di --dump-dom.
   window.addEventListener('error', e => { window.__errors.push(e.message); document.title = 'JSERR: ' + window.__errors.join(' | '); });
   window.addEventListener('unhandledrejection', e => { window.__errors.push('unhandledrejection: ' + (e.reason && e.reason.message || e.reason)); document.title = 'JSERR: ' + window.__errors.join(' | '); });
 
@@ -12,6 +14,9 @@
   const appEl = () => document.getElementById('app');
   const btn = txt => [...appEl().querySelectorAll('button')].find(b => b.textContent.trim().includes(txt));
   const has = txt => appEl().textContent.includes(txt);
+  // tiap langkah langsung di-flush ke DOM (PROGRESS[...]) supaya kalau skrip
+  // menggantung di tengah, masih ketahuan langkah terakhir yang berhasil.
+  // finish() nanti menimpanya dengan RESULTS[...]END sbg penanda selesai.
   const step = (name, ok) => { out.push((ok ? 'PASS' : 'FAIL') + ' :: ' + name); R.textContent = 'PROGRESS[' + out.join(' ;; ') + ']'; };
   const click = el => el && el.dispatchEvent(new MouseEvent('click', {bubbles:true}));
   const type = (id, val) => { const el = document.getElementById(id); if(!el) return false; el.value = val; el.dispatchEvent(new Event('input', {bubbles:true})); return true; };
@@ -173,6 +178,13 @@
       click(tahunanBtns()[0]);
       step('tren omset tahunan tampil', await waitFor(() => has('Total Omset (Tahunan)') && has('Jan')));
 
+      // laporan penjualan per tanggal: pilih tanggal → rincian barang yang laku hari itu
+      step('panel penjualan per tanggal ada', has('Penjualan per Tanggal'));
+      click(document.getElementById('custom-trig-saldate'));
+      step('date picker laporan terbuka', await waitFor(() => has('Pilih Hari Ini')));
+      click(btn('Pilih Hari Ini'));
+      step('rincian per tanggal termuat', await waitFor(() => has('Omset Hari Itu') || has('Tidak ada penjualan pada tanggal ini')));
+
       // panah pilih tahun: mundur satu tahun, data ikut termuat, hanya tahun itu yang di-cache (bukan semua tahun)
       const prevYearBtn = () => appEl().querySelector('button[title="tahun-sebelumnya"]');
       const nextYearBtn = () => appEl().querySelector('button[title="tahun-berikutnya"]');
@@ -214,6 +226,15 @@
       click(btn('TAMBAHKAN'));
       step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
 
+      // riwayat stok (track record): restock barusan harus muncul sbg mutasi "masuk"
+      const prodNm = (rbtn.title || '').replace('restok-', '');
+      const histBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'riwayat-' + prodNm);
+      click(histBtn());
+      step('modal riwayat stok terbuka', await waitFor(() => has('Riwayat Stok')));
+      step('restock tercatat di riwayat (+5 masuk)', await waitFor(() => has('Restock') && has('Masuk') && has('+5')));
+      click(btn('Tutup'));
+      step('modal riwayat tertutup', await waitFor(() => !has('Riwayat Stok')));
+
       // scan barcode: input manual (headless tak punya kamera) → produk ketemu → modal restock
       click(btn('Tambah Stok via Scan'));
       step('modal scan terbuka', await waitFor(() => !!document.getElementById('i-scanmanual')));
@@ -235,7 +256,7 @@
       click(btn('Pilih Hari Ini'));
       click(btn('SIMPAN PO'));
       step('PO tersimpan ke DB', await waitFor(() => has(supNm) && has('Purchase Order dicatat')));
-      const lunasiOf = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Lunasi');
+      const lunasiOf = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tandai Lunas');
       const nLunasi = lunasiOf().length;
       click(lunasiOf()[0]); // PO terbaru = paling atas
       step('modal konfirmasi lunas supplier muncul', await waitFor(() => has('Konfirmasi Pelunasan')));
@@ -303,10 +324,15 @@
       click([...document.querySelectorAll('#app button')].find(b => b.textContent.trim() === 'Rutin Bulanan'));
       step('mode rutin bulanan aktif', await waitFor(() => !!document.getElementById('i-bxdueday')));
       const tomorrowDay = new Date(Date.now() + 864e5).getDate();
-      type('i-bxamount', '35000'); // form baru dari newBiaya() reset bxAmount ke '' — wajib diisi ulang tiap form
+      // Nominal dibuat UNIK per run (35xxx). Dulu dipatok 35000, tapi kalau satu run mati
+      // di tengah, baris rutinnya tertinggal di DB dan run berikutnya melihat >1 baris
+      // "Rp35.000" — pencarian baris jadi ambigu & langkah lunas/hapus ikut gagal.
+      const bxAmt = 35000 + Number(String(Date.now()).slice(-3));
+      const bxAmtText = 'Rp' + bxAmt.toLocaleString('id-ID');
+      type('i-bxamount', String(bxAmt)); // form baru dari newBiaya() reset bxAmount ke '' — wajib diisi ulang tiap form
       type('i-bxdueday', String(tomorrowDay));
       click(btn('SIMPAN BIAYA'));
-      step('biaya rutin tersimpan ke DB', await waitFor(() => has('Biaya tercatat') && window.SS.DB.expenses.some(x => x.recurring && x.dueDay === tomorrowDay && x.amount === 35000)));
+      step('biaya rutin tersimpan ke DB', await waitFor(() => has('Biaya tercatat') && window.SS.DB.expenses.some(x => x.recurring && x.dueDay === tomorrowDay && x.amount === bxAmt)));
 
       // lonceng notifikasi ikut menghitung biaya rutin yang jatuh tempo ≤3 hari
       const bellBtn = () => [...document.querySelectorAll('#app button')].find(b => b.style.position === 'relative' && b.querySelector('svg'));
@@ -316,17 +342,20 @@
       step('panel lonceng tertutup', await waitFor(() => !has('Notifikasi Jatuh Tempo')));
 
       click(btn('Biaya Operasional'));
-      const lunasiOfBiaya = () => [...document.querySelectorAll('#app button')].filter(b => b.textContent.trim() === 'Lunasi');
+      const lunasiOfBiaya = () => [...document.querySelectorAll('#app button')].filter(b => b.textContent.trim() === 'Tandai Lunas');
       // [0] ambigu: seed nanam recurring due_day 25 (Sewa) & 20 (Listrik) tiap cabang, bisa tabrakan dgn tomorrowDay.
-      // Cari baris milik tes sendiri lewat nominal 35.000 (unik, tak dipakai seed manapun) — closest('div') dari tombol
-      // naik ke div baris grid (tombol ada di dalam <span>, bukan <div>), textContent baris itu memuat amountText "Rp35.000".
-      const myLunasiBtn = () => lunasiOfBiaya().find(b => b.closest('div').textContent.includes('Rp35.000'));
+      // Cari baris milik tes sendiri lewat nominal 35.000 (unik, tak dipakai seed manapun).
+      // biayaRowOf(): tombol kini dibungkus <div inline-flex> sendiri, jadi closest('div') polos
+      // berhenti di pembungkus itu (tak memuat nominal). Naik sampai div BARIS: desktop = grid,
+      // mobile = kartu ber-border-radius — pola yang sama dipakai stokCellOf di atas.
+      const biayaRowOf = b => b.closest('div[style*="grid"], div[style*="border-radius"]');
+      const myLunasiBtn = () => lunasiOfBiaya().find(b => (biayaRowOf(b)?.textContent || '').includes(bxAmtText));
       const nLunasiBefore = lunasiOfBiaya().length;
       click(myLunasiBtn());
       step('biaya rutin ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOfBiaya().length === nLunasiBefore - 1));
 
       // edit biaya sekali-ini: ganti keterangan → tersimpan (bukan tombol hapus langsung di baris lagi)
-      const editBiayaBtnFor = text => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('edit-biaya-') && b.closest('div').textContent.includes(text));
+      const editBiayaBtnFor = text => [...document.querySelectorAll('#app button')].find(b => b.title.startsWith('edit-biaya-') && (biayaRowOf(b)?.textContent || '').includes(text));
       click(editBiayaBtnFor(bxNote));
       step('form edit biaya terbuka terisi', await waitFor(() => has('Edit Biaya') && document.getElementById('i-bxnote')?.value === bxNote));
       const bxNoteEdited = 'Diedit E2E ' + String(Date.now()).slice(-5);
@@ -344,11 +373,11 @@
       // hapus juga baris rutin (Rp35.000) — kalau dibiarkan, catchUpRecurringExpenses() di backend
       // meng-klon baris rutin PALING BARU per (cabang, kategori) jadi template bulan depan, jadi sisa
       // baris tes ini bisa membajak nominal/tanggal jatuh tempo yang ter-generate untuk "Sewa" asli
-      click(editBiayaBtnFor('Rp35.000'));
-      step('form edit biaya rutin terbuka terisi', await waitFor(() => has('Edit Biaya') && document.getElementById('i-bxamount')?.value === '35000'));
+      click(editBiayaBtnFor(bxAmtText));
+      step('form edit biaya rutin terbuka terisi', await waitFor(() => has('Edit Biaya') && document.getElementById('i-bxamount')?.value === String(bxAmt)));
       click(btn('Hapus Biaya Ini'));
       click(btn('YA, HAPUS'));
-      step('biaya rutin terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has('Rp35.000')));
+      step('biaya rutin terhapus dari DB', await waitFor(() => has('Biaya dihapus') && !has(bxAmtText)));
 
       // tambah produk (admin) — form fungsional, tersimpan ke DB
       click(btn('Produk & Harga'));
