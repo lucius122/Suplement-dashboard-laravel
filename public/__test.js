@@ -52,6 +52,35 @@
         // rantai ini kerap >8s di headless, padahal layarnya benar (langkah SS.DB di bawah lolos).
         step('m: kasir masuk ke layar kasir', await waitFor(() => has('Kasir') && has('Keranjang'), 20000));
         step('m: runtime kasir terhubung (SS.DB)', await waitFor(() => (window.SS?.DB?.products || []).length > 0));
+
+        /* ---- penjualan sungguhan lewat UI kasir (inti POS) ----
+           Sampai ini ada, transaksi cuma teruji di level HTTP/service; layar kasirnya
+           sendiri tidak pernah dijalankan. Stok total dipakai sebagai bukti: kalau
+           berkurang tepat 1, berarti request benar-benar sampai server, stok terpotong,
+           dan klien memuat ulang data. */
+        const sumStok = () => (window.SS.DB.products || []).reduce((s,p) => s + p.stok, 0);
+        const stok0 = sumStok();
+
+        // window.open distub: headless tidak boleh benar-benar membuka jendela & mencetak,
+        // tapi isi notanya tetap harus bisa diperiksa.
+        let notaHtml = '';
+        window.open = () => ({ document:{ write:(h)=>{ notaHtml = h; }, close(){} }, focus(){}, print(){} });
+
+        const addBtn = () => [...appEl().querySelectorAll('button')].find(b => b.textContent.includes('+ Tambah'));
+        step('m: katalog menampilkan produk cabangnya', await waitFor(() => !!addBtn()));
+        click(addBtn());
+        step('m: produk masuk keranjang', await waitFor(() => /di keranjang/.test(appEl().textContent)));
+
+        click(btn('Bayar'));
+        step('m: panel bayar terbuka', await waitFor(() => !!document.getElementById('k-cash')));
+        type('k-cash', '2000000');
+        step('m: kembalian dihitung otomatis', await waitFor(() => has('Kembalian')));
+
+        click(btn('Cetak Nota'));
+        step('m: transaksi tersimpan & stok server berkurang', await waitFor(() => sumStok() === stok0 - 1, 15000));
+        step('m: keranjang dikosongkan setelah bayar', await waitFor(() => !/di keranjang/.test(appEl().textContent)));
+        step('m: nota berisi rincian & total bayar', notaHtml.includes('TOTAL BAYAR') && notaHtml.includes('Kembalian'));
+
         step('m: tanpa error js', window.__errors.length === 0);
         finish(); return;
       }
