@@ -277,22 +277,23 @@ class StoreController extends Controller
         abort_if(! $user->branch_id, 422, 'Akun ini belum dikaitkan ke cabang manapun.');
 
         $data = $request->validate([
-            'items'                  => ['required', 'array', 'min:1'],
-            'items.*.product_id'     => ['required', 'integer', 'exists:products,id'],
-            'items.*.qty'            => ['required', 'integer', 'min:1'],
-            'items.*.price'          => ['required', 'integer', 'min:0'],
-            'method'                 => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
-            'cash'                   => ['nullable', 'integer', 'min:0'],
-            'customer_name'          => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
-            'due_date'               => ['required_if:method,tempo', 'nullable', 'date'],
+            'items'              => ['required', 'array', 'min:1'],
+            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.qty'        => ['required', 'integer', 'min:1'],
+            // Kasir diizinkan mengubah harga jual per item; validasi hanya memastikan non-negatif.
+            'items.*.price'      => ['required', 'integer', 'min:0'],
+            'method'             => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
+            'cash'               => ['nullable', 'integer', 'min:0'],
+            'customer_name'      => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
+            // due_date tidak dikirim dari client; dihitung otomatis +1 bulan di bawah.
         ]);
 
-        DB::transaction(function () use ($data, $user) {
+        $trxId = null;
+
+        DB::transaction(function () use ($data, $user, &$trxId) {
             $branchId = $user->branch_id;
 
-            // Kunci baris produk & pakai harga ASLI dari DB (bukan dari client) — satu
-            // query per item, dipakai ulang utk cek stok & potong stok, supaya tidak ada
-            // celah check-then-act antar transaksi yang terjadi hampir bersamaan.
+            // Kunci baris produk untuk cek & potong stok (hindari race condition)
             $products = [];
             foreach ($data['items'] as $item) {
                 $prod = Product::where('id', $item['product_id'])->lockForUpdate()->first();
@@ -304,8 +305,20 @@ class StoreController extends Controller
                 $products[$item['product_id']] = $prod;
             }
 
-            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $products[$i['product_id']]->harga);
-            $cash  = ($data['method'] === 'tunai') ? ($data['cash'] ?? null) : null;
+            // Total dihitung dari harga yang dikirim client (kasir boleh ubah harga).
+            $total = collect($data['items'])->sum(fn ($i) => $i['qty'] * $i['price']);
+
+            $cash   = null;
+            $change = null;
+
+            if ($data['method'] === 'tunai') {
+                $cash = $data['cash'] ?? null;
+                if ($cash !== null) {
+                    // cash >= total → ada kembalian
+                    // cash < total  → kasir memberi potongan; change dibiarkan null
+                    $change = ($cash >= $total) ? ($cash - $total) : null;
+                }
+            }
 
             $trx = Transaction::create([
                 'branch_id' => $branchId,
@@ -313,8 +326,10 @@ class StoreController extends Controller
                 'method'    => $data['method'],
                 'total'     => $total,
                 'cash'      => $cash,
-                'change'    => $cash !== null ? max(0, $cash - $total) : null,
+                'change'    => $change,
             ]);
+
+            $trxId = $trx->id;
 
             foreach ($data['items'] as $item) {
                 $prod = $products[$item['product_id']];
@@ -324,20 +339,21 @@ class StoreController extends Controller
                     'product_id'     => $item['product_id'],
                     'branch_id'      => $branchId,
                     'qty'            => $item['qty'],
-                    'price'          => $prod->harga,
+                    // Simpan harga yang benar-benar dipakai kasir (bukan harga normal DB)
+                    'price'          => $item['price'],
                 ]);
 
-                // Potong stok pakai baris yang sama yang sudah dikunci & divalidasi di atas
+                // Potong stok (baris sudah dikunci & divalidasi di atas)
                 $prod->decrement('stok', $item['qty']);
             }
 
-            // Pembayaran tempo → buat piutang otomatis
+            // Pembayaran tempo → buat piutang otomatis; jatuh tempo = sekarang + 1 bulan
             if ($data['method'] === 'tempo') {
                 Receivable::create([
                     'name'           => $data['customer_name'],
                     'amount'         => $total,
                     'trx_date'       => now()->toDateString(),
-                    'due_date'       => $data['due_date'],
+                    'due_date'       => now()->addMonth()->toDateString(),
                     'branch_id'      => $branchId,
                     'transaction_id' => $trx->id,
                     'paid'           => false,
@@ -345,7 +361,8 @@ class StoreController extends Controller
             }
         });
 
-        return response()->json(['ok' => true]);
+        // Kembalikan trx_id agar frontend bisa mencantumkannya di nota cetak
+        return response()->json(['ok' => true, 'trx_id' => $trxId]);
     }
 
     public function payReceivable(Request $request, Receivable $receivable)
