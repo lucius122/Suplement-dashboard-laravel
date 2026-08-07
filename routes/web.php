@@ -5,7 +5,6 @@ use App\Http\Controllers\BranchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ProductController;
-use App\Http\Controllers\PromoController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\UserController;
@@ -55,10 +54,6 @@ Route::middleware('auth')->prefix('api')->group(function () {
     // Pembelian (hutang supplier)
     Route::post('/suppliers', [SupplierController::class, 'storeSupplier']);
     Route::post('/suppliers/{supplier}/pay', [SupplierController::class, 'paySupplier']);
-
-    // Promo & Bundle
-    Route::post('/promos', [PromoController::class, 'storePromo']);
-    Route::delete('/promos/{promo}', [PromoController::class, 'deletePromo']);
 
     // Manajemen User
     Route::post('/users', [UserController::class, 'storeUser']);

@@ -10,8 +10,6 @@
 </head>
 <body>
   <div id="app"></div>
-  {{-- Fallback decoding barcode: BarcodeDetector browser hanya ada di Chrome Android/ChromeOS, tak ada di Chrome/Edge desktop. --}}
-  <script src="{{ asset('js/vendor/zxing.min.js') }}"></script>
   <script src="{{ asset('js/app.js') }}"></script>
   {{-- Modul kasir (dikerjakan tim kasir). Harus dimuat SETELAH app.js karena memakai window.SS. --}}
   <script src="{{ asset('js/kasir.js') }}"></script>

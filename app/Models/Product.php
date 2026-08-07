@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $harga
  * @property int $modal
  * @property string $kategori
- * @property string|null $barcode
  * @property string|null $exp
  * @property int $stok
  * @property int $branch_id
@@ -21,7 +20,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Product extends Model
 {
-    protected $fillable = ['name', 'varian', 'harga', 'modal', 'kategori', 'barcode', 'exp', 'stok', 'branch_id', 'photo', 'custom'];
+    // 'barcode' sengaja TIDAK fillable: fitur barcode/scan dihapus Agustus 2026,
+    // kolomnya masih ada di DB tapi tak diisi/dibaca lagi.
+    protected $fillable = ['name', 'varian', 'harga', 'modal', 'kategori', 'exp', 'stok', 'branch_id', 'photo', 'custom'];
 
     protected $casts = ['custom' => 'boolean'];
 

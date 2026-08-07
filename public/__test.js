@@ -36,7 +36,9 @@
 
   (async function(){
     try {
-      step('login screen', await waitFor(() => has('Masuk ke Sistem')));
+      // 20s (bukan 8s default): ini render PERTAMA setelah halaman dimuat — saat paling
+      // lambat (parse app.js + cek sesi /me), gampang lewat batas di mesin yang sibuk.
+      step('login screen', await waitFor(() => has('Masuk ke Sistem'), 20000));
 
       if (window.innerWidth < 900) {
         /* ---- alur mobile: kasir login → layar kasir (modul kasir.js) muncul ---- */
@@ -44,8 +46,12 @@
         // ke layar kasir yang dirender modul kasir.js (placeholder starter).
         type('i-uname', 'kasir'); type('i-pass', 'kasir');
         click(btn('MASUK'));
-        step('m: kasir masuk ke layar kasir', await waitFor(() => has('Kasir') && (has('Mulai bangun Kasir di sini') || has('produk termuat dari server'))));
-        step('m: runtime kasir terhubung (SS.DB)', await waitFor(() => /\d+ produk termuat/.test(appEl().textContent)));
+        // Diuji terhadap UI kasir yang SUNGGUHAN (kasir.js milik tim kasir), bukan
+        // teks placeholder starter yang sudah lama tidak dipakai lagi.
+        // 20s: login + loadAll (bootstrap & dashboard) baru lalu kasir.js merender —
+        // rantai ini kerap >8s di headless, padahal layarnya benar (langkah SS.DB di bawah lolos).
+        step('m: kasir masuk ke layar kasir', await waitFor(() => has('Kasir') && has('Keranjang'), 20000));
+        step('m: runtime kasir terhubung (SS.DB)', await waitFor(() => (window.SS?.DB?.products || []).length > 0));
         step('m: tanpa error js', window.__errors.length === 0);
         finish(); return;
       }
@@ -199,7 +205,7 @@
       step('panah tahun maju balik ke tahun ini', await waitFor(() => yearLabel() === y0));
 
       click(btn('Manajemen Stok'));
-      step('stok terbuka', await waitFor(() => has('Tambah Stok via Scan')));
+      step('stok terbuka', await waitFor(() => has('Kelola Kategori')));
       click(btn('Kelola Kategori'));
       step('modal kategori terbuka', await waitFor(() => !!document.getElementById('i-newcat')));
       const kat = 'Kat' + String(Date.now()).slice(-5);
@@ -235,15 +241,6 @@
       click(btn('Tutup'));
       step('modal riwayat tertutup', await waitFor(() => !has('Riwayat Stok')));
 
-      // scan barcode: input manual (headless tak punya kamera) → produk ketemu → modal restock
-      click(btn('Tambah Stok via Scan'));
-      step('modal scan terbuka', await waitFor(() => !!document.getElementById('i-scanmanual')));
-      type('i-scanmanual', '8991234500031'); // Creatine Monohydrate (Pleburan)
-      click(btn('GUNAKAN'));
-      step('barcode dikenali → modal restock produknya', await waitFor(() => !!document.getElementById('i-restockqty') && has('Creatine Monohydrate')));
-      click(btn('Batal'));
-      step('modal restock ditutup', await waitFor(() => !document.getElementById('i-restockqty')));
-
       // supplier: buat PO baru lalu tandai lunas
       click(btn('Pembelian'));
       step('layar supplier terbuka', await waitFor(() => has('Total Hutang ke Supplier')));
@@ -262,19 +259,6 @@
       step('modal konfirmasi lunas supplier muncul', await waitFor(() => has('Konfirmasi Pelunasan')));
       click(btn('YA, SUDAH LUNAS'));
       step('hutang supplier ditandai lunas', await waitFor(() => has('ditandai lunas') && lunasiOf().length === nLunasi - 1));
-
-      // promo: tambah lalu hapus
-      click(btn('Promo & Bundle'));
-      step('layar promo terbuka (data DB)', await waitFor(() => has('Paket Pemula')));
-      click(btn('+ Buat Promo / Bundle'));
-      step('form promo terbuka', await waitFor(() => !!document.getElementById('i-prname')));
-      const prNm = 'Promo E2E ' + String(Date.now()).slice(-5);
-      type('i-prname', prNm); type('i-prvalue', '10%');
-      click(btn('SIMPAN PROMO'));
-      step('promo tersimpan ke DB', await waitFor(() => has(prNm) && has('Promo tersimpan')));
-      const delPromoBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'hapus-promo-' + prNm);
-      click(delPromoBtn());
-      step('promo terhapus dari DB', await waitFor(() => has('dihapus') && !delPromoBtn()));
 
       // biaya operasional: catat sekali-ini, catat rutin (jatuh tempo besok → masuk lonceng), lunasi, hapus
       click(btn('Biaya Operasional'));
@@ -334,10 +318,36 @@
       click(btn('SIMPAN BIAYA'));
       step('biaya rutin tersimpan ke DB', await waitFor(() => has('Biaya tercatat') && window.SS.DB.expenses.some(x => x.recurring && x.dueDay === tomorrowDay && x.amount === bxAmt)));
 
+      // Notifikasi desktop: headless tak punya Notification API. Stub dipasang SEBELUM
+      // panel lonceng dibuka — app.js tak mengekspor setState ke global, jadi satu-satunya
+      // cara merender ulang adalah lewat interaksi (klik lonceng) setelah stub terpasang.
+      // Stub dipasang PAKSA (menimpa API asli kalau ada): headless Edge punya
+      // Notification API, tapi requestPermission()-nya tak pernah 'granted' tanpa
+      // klik manusia — tanpa ditimpa, jalur kodenya tak akan pernah teruji.
+      let notifStub = false;
+      try {
+        window.__notifs = [];
+        const Stub = function(judul, opt){ window.__notifs.push({ judul, body:(opt||{}).body }); };
+        Stub.permission = 'default';
+        Stub.requestPermission = () => { Stub.permission = 'granted'; return Promise.resolve('granted'); };
+        Object.defineProperty(window, 'Notification', { value: Stub, writable: true, configurable: true });
+        notifStub = window.Notification === Stub;
+      } catch(e) { notifStub = false; }
+
       // lonceng notifikasi ikut menghitung biaya rutin yang jatuh tempo ≤3 hari
       const bellBtn = () => [...document.querySelectorAll('#app button')].find(b => b.style.position === 'relative' && b.querySelector('svg'));
       click(bellBtn());
       step('lonceng menampilkan biaya rutin', await waitFor(() => has('Biaya:')));
+
+      if (notifStub) {
+        step('tombol aktifkan notifikasi desktop muncul', await waitFor(() => has('Aktifkan notifikasi desktop')));
+        click(btn('Aktifkan notifikasi desktop'));
+        step('izin diberikan → notifikasi desktop terkirim', await waitFor(() => (window.__notifs || []).length > 0));
+        step('isi notifikasi menyebut jatuh tempo', (window.__notifs || []).some(n => /jatuh tempo/i.test(n.judul)));
+      } else {
+        out.push("SKIP :: notifikasi desktop (Notification API tak bisa ditimpa di browser ini)");
+      }
+
       click(document.querySelector('#app div[style*="position:fixed"][style*="inset:0"]')); // klik scrim → tutup panel lonceng (bellHtml(): style ditulis tanpa spasi setelah ":", innerHTML tak menormalisasinya)
       step('panel lonceng tertutup', await waitFor(() => !has('Notifikasi Jatuh Tempo')));
 
@@ -387,14 +397,6 @@
       const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
       type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
       step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));
-      // scan dari form produk: form disembunyikan → modal scan → kode terdeteksi →
-      // kembali ke form dengan barcode terisi & isian lain masih utuh
-      const scanBtnInForm = [...appEl().querySelectorAll('button')].find(b => b.closest('div')?.querySelector('#i-pbarcode'));
-      click(scanBtnInForm);
-      step('scan dibuka, form produk minggir', await waitFor(() => !!document.getElementById('i-scanmanual') && !document.getElementById('i-pname')));
-      type('i-scanmanual', '1234567890123');
-      click(btn('GUNAKAN'));
-      step('kembali ke form + barcode terisi', await waitFor(() => document.getElementById('i-pbarcode')?.value === '1234567890123' && document.getElementById('i-pname')?.value === pnm));
       click(btn('SIMPAN PRODUK'));
       step('produk baru tersimpan ke DB', await waitFor(() => has(pnm) && has('ditambahkan')));
 
@@ -403,7 +405,7 @@
       click(btn('Ganti Mode / Kasir'));
       step('kembali ke pilihan mode', await waitFor(() => has('Mau ke mana?')));
       click(btn('Buka Kasir'));
-      step('layar kasir didelegasikan ke kasir.js', await waitFor(() => has('Kasir') && (has('Mulai bangun Kasir di sini') || has('produk termuat dari server'))));
+      step('layar kasir didelegasikan ke kasir.js', await waitFor(() => has('Kasir') && has('Keranjang')));
 
       step('tanpa error js', window.__errors.length === 0);
     } catch(e) {

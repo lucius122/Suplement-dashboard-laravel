@@ -8,7 +8,6 @@ use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Product;
 use App\Models\StockMovement;
-use App\Models\Promo;
 use App\Models\Receivable;
 use App\Models\Supplier;
 use App\Models\Transaction;
@@ -57,24 +56,24 @@ class DatabaseSeeder extends Seeder
         // dasar, varian = berat/ukuran. Rasa sengaja tidak dijadikan master terpisah
         // supaya input stok cepat (mis. Whey Gold Standard 2lb cukup satu baris).
         $products = [
-            ['Whey Gold Standard',        '2lb',    685000, 540000, 'Protein',   '8991234500017', 9,    16, $pleburan],
-            ['Whey Gold Standard',        '5lb',    1450000, 1180000, 'Protein',  '8991234500024', 2,    4,  $pleburan],
-            ['Creatine Monohydrate',      '300g',   215000, 150000, 'Performa',  '8991234500031', 12,   20, $pleburan],
-            ['BCAA 2:1:1',                '400g',   245000, 175000, 'Recovery',  '8991234500048', 1,    7,  $pleburan],
-            ['Mass Gainer',               '5lb',    540000, 430000, 'Protein',   '8991234500055', 3,    0,  $pleburan],
-            ['Pre-Workout C4',            '60 srv', 320000, 230000, 'Performa',  '8991234500062', 4,    9,  $pleburan],
-            ['Fish Oil Omega-3',          '200 kaps', 145000, 95000, 'Kesehatan', '8991234500079', 7,   25, $pleburan],
-            ['Shaker Bottle',             '600ml',   55000,  30000, 'Aksesoris', '8991234500086', null, 30, $pleburan],
-            ['Multivitamin Daily',        '60 tab', 110000,  70000, 'Kesehatan', '8991234500093', 6,    3,  $surakarta],
-            ['Whey Isolate',              '2lb',    760000, 600000, 'Protein',   '8991234500109', 8,    6,  $surakarta],
-            ['L-Glutamine',               '300g',   190000, 130000, 'Recovery',  '8991234500116', 2,    2,  $surakarta],
-            ['Vitamin C 1000mg',          '60 tab',  65000,  38000, 'Kesehatan', '8991234500123', 1,    14, $surakarta],
+            ['Whey Gold Standard',        '2lb',    685000, 540000, 'Protein',   9,    16, $pleburan],
+            ['Whey Gold Standard',        '5lb',    1450000, 1180000, 'Protein',  2,    4,  $pleburan],
+            ['Creatine Monohydrate',      '300g',   215000, 150000, 'Performa',  12,   20, $pleburan],
+            ['BCAA 2:1:1',                '400g',   245000, 175000, 'Recovery',  1,    7,  $pleburan],
+            ['Mass Gainer',               '5lb',    540000, 430000, 'Protein',   3,    0,  $pleburan],
+            ['Pre-Workout C4',            '60 srv', 320000, 230000, 'Performa',  4,    9,  $pleburan],
+            ['Fish Oil Omega-3',          '200 kaps', 145000, 95000, 'Kesehatan', 7,   25, $pleburan],
+            ['Shaker Bottle',             '600ml',   55000,  30000, 'Aksesoris', null, 30, $pleburan],
+            ['Multivitamin Daily',        '60 tab', 110000,  70000, 'Kesehatan', 6,    3,  $surakarta],
+            ['Whey Isolate',              '2lb',    760000, 600000, 'Protein',   8,    6,  $surakarta],
+            ['L-Glutamine',               '300g',   190000, 130000, 'Recovery',  2,    2,  $surakarta],
+            ['Vitamin C 1000mg',          '60 tab',  65000,  38000, 'Kesehatan', 1,    14, $surakarta],
         ];
         foreach ($products as $i => $p) {
             Product::create([
                 'name' => $p[0], 'varian' => $p[1], 'harga' => $p[2], 'modal' => $p[3],
-                'kategori' => $p[4], 'barcode' => $p[5], 'exp' => $exp($p[6]),
-                'stok' => $p[7], 'branch_id' => $p[8]->id,
+                'kategori' => $p[4], 'exp' => $exp($p[5]),
+                'stok' => $p[6], 'branch_id' => $p[7]->id,
                 'photo' => '/images/pr'.($i + 1).'.png',
             ]);
         }
@@ -108,17 +107,6 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($sup as $s) {
             Supplier::create(['name' => $s[0], 'amount' => $s[1], 'due_date' => now()->addDays($s[2])->toDateString(), 'paid' => $s[3]]);
-        }
-
-        // ---- promos (katalog display) ----
-        $promos = [
-            ['Paket Pemula', 'Whey 2lb + Shaker Bottle', 'Bundle', 'Hemat Rp40.000'],
-            ['Diskon Creatine', 'Semua varian Creatine', 'Diskon', '15%'],
-            ['Bundle Recovery', 'BCAA + L-Glutamine', 'Bundle', 'Hemat Rp55.000'],
-            ['Flash Sale Vitamin', 'Vitamin C & Multivitamin', 'Diskon', 'Rp10.000'],
-        ];
-        foreach ($promos as $p) {
-            Promo::create(['name' => $p[0], 'desc' => $p[1], 'type' => $p[2], 'value' => $p[3]]);
         }
 
         foreach (['Sewa', 'Listrik', 'Sampah', 'Plastik', 'Lainnya'] as $cat) {

@@ -29,7 +29,6 @@ class ProductController extends Controller
             'stok'     => ['nullable', 'integer', 'min:0'],
             'kategori' => ['required', 'string', 'max:40', Rule::exists('categories', 'name')],
             'branch'   => [$isAdmin ? 'required' : 'nullable', 'string', 'exists:branches,name'],
-            'barcode'  => ['nullable', 'string', 'max:60'],
             'exp'      => ['nullable', 'regex:/^\d{4}-\d{2}$/'],  // format YYYY-MM
             'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
         ]);
@@ -61,7 +60,6 @@ class ProductController extends Controller
             'kategori'  => $data['kategori'],
             'stok'      => (int) ($data['stok'] ?? 0),
             'branch_id' => $branchId,
-            'barcode'   => $data['barcode'] ?: null,
             'exp'       => $data['exp'] ?: null,
             'photo'     => $photo,
             'custom'    => true,

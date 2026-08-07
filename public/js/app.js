@@ -3,7 +3,7 @@
 'use strict';
 
 /* ================= server data ================= */
-const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], promos: [], expenses: [], expenseCategories: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
+const DB = { branches: [], categories: [], products: [], receivables: [], users: [], suppliers: [], expenses: [], expenseCategories: [], dash: {}, byUser: {}, memberItems: {}, yearly: {} };
 let USER = null;
 
 const CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
@@ -83,26 +83,20 @@ let S = {
   bell: false, more: false, toast: '',
   pf: 'Semua', pq: '',
   stokCat: 'Semua', userRole: 'Semua',
-  scan: false, userForm: false, prodForm: false,
+  userForm: false, prodForm: false,
   period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
-  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'', pBranch:'', // form tambah produk (admin)
+  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pExp:'', pBranch:'', // form tambah produk (admin)
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
-  promoForm:false, prName:'', prDesc:'', prType:'Bundle', prValue:'', // form promo/bundle
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   histId:null, histName:'', histRows:null,                  // modal riwayat stok (histId null = tutup, histRows null = masih memuat)
   salesDate:'', salesDateData:null,                         // laporan penjualan per tanggal ('' = belum dipilih, data null = memuat)
-  scanTarget:'stok', scanManual:'', scanMsg:'',             // scan barcode (kamera + input manual)
-  scanDevices:[], scanDeviceId:null,                        // daftar kamera terdeteksi (mis. DroidCam) + pilihan aktif
   biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
   bxCatForm:false, newBxCat:'', editBxCatId:null,           // modal Kelola Kategori Biaya
   editExpenseId:null,                                       // null = form Catat Biaya mode tambah
   confirmPay:null,                                          // modal konfirmasi tandai lunas: {kind:'receivable'|'supplier', row} | null
   confirmDelete:null,                                       // modal konfirmasi hapus generik: {label, onConfirm} | null
   uPassShow:false,                                          // tombol mata password form user
-  // scan kasir (stream terpisah dari scan admin supaya tidak konflik state)
-  k_scanMode:null, k_scanMsg:'', k_scanDevices:[], k_scanDeviceId:null, k_scanManual:'',
-  k_restockId:null, k_restockQty:'',                        // modal restock setelah scan masuk
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '', editBranchId: null,
   // state untuk custom form controls (Select, DatePicker, MonthPicker)
@@ -131,11 +125,9 @@ function ic(name, color, size){
     laporan:['M4 20h16','M4 14l5-5 4 4 6-7'],
     users:['M17 20a5 5 0 0 0-10 0','M12 11a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z'],
     supplier:['M3 6h11v10H3zM14 9h4l3 3v4h-7','M7.5 18.5a1.6 1.6 0 1 0 .01 0M16.5 18.5a1.6 1.6 0 1 0 .01 0'],
-    promo:['M20 12v8H4v-8M2 7.5h20V12H2zM12 7.5V20M12 7.5C11 4 9 3 7.5 3.5S5.5 7 8 7.5M12 7.5C13 4 15 3 16.5 3.5S18.5 7 16 7.5'],
     shopee:['M5 8h14l-1 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 8Z','M9 8V6a3 3 0 0 1 6 0v2'],
     biaya:['M8 12h8'],
     refresh:['M21 12a9 9 0 1 1-2.6-6.4','M21 3v4h-4'],
-    scan:['M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M6 12h12'],
     warn:['M12 9v4M12 17h.01','M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z'],
     settings:['M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z'],
   };
@@ -220,7 +212,7 @@ async function saveProduct(){
       name: nama, varian: S.pVar.trim() || '-', harga,
       modal: parseInt(S.pModal)||0, stok: parseInt(S.pStok)||0,
       kategori: S.pKat, branch: S.pBranch,
-      barcode: S.pBarcode.trim() || null, exp: S.pExp || null,
+      exp: S.pExp || null,
     });
     setState({ prodForm:false });
     await loadAll();
@@ -343,20 +335,6 @@ async function paySupplier(s){
   catch(e) { flash(e.message); }
 }
 
-async function savePromo(){
-  if(!S.prName.trim()){ flash('Isi nama promo dulu'); return; }
-  if(!S.prValue.trim()){ flash('Isi nilai promo (mis. 15% / Hemat Rp40.000)'); return; }
-  try {
-    await api('/api/promos', 'POST', { name:S.prName.trim(), desc:S.prDesc.trim(), type:S.prType, value:S.prValue.trim() });
-    Object.assign(S, { promoForm:false });
-    await loadAll();
-    flash('Promo tersimpan');
-  } catch(e) { flash(e.message); }
-}
-async function deletePromo(p){
-  try { await api('/api/promos/'+p.id, 'DELETE'); await loadAll(); flash('Promo "'+p.name+'" dihapus'); }
-  catch(e) { flash(e.message); }
-}
 async function saveExpense(){
   if(!S.bxBranch){ flash('Pilih cabang dulu'); return; }
   const amount = parseInt(S.bxAmount)||0;
@@ -400,175 +378,6 @@ async function deleteExpense(x){
   } catch(e) { flash(e.message); }
 }
 
-/* ---- scan barcode (EAN-13 dsb.) via kamera ----
-   BarcodeDetector bawaan browser cuma ada di Chrome Android/ChromeOS (TIDAK di
-   Chrome/Edge desktop Windows/Mac/Linux, walau versi terbaru) → fallback ZXing
-   (public/js/vendor/zxing.min.js, global window.ZXing) dipakai kalau native tak ada. */
-let scanStream = null, scanTimer = null, scanDetector = null;
-let lastScanCode = '', lastScanAt = 0;
-let zxingMultiReader = null;
-let zxingHints = null;
-let scanCanvas = null;
-let scanCtx = null;
-
-function getZxingReader() {
-  if (!zxingMultiReader && 'ZXing' in window) {
-    zxingHints = new Map();
-    zxingHints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    if (ZXing.BarcodeFormat) {
-      zxingHints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.QR_CODE,
-      ]);
-    }
-    zxingMultiReader = new ZXing.MultiFormatReader();
-    zxingMultiReader.setHints(zxingHints);
-  }
-  return zxingMultiReader;
-}
-
-function decodeFrameFromVideo(videoElement) {
-  if (!videoElement || videoElement.videoWidth === 0 || videoElement.readyState < 2) return null;
-  const reader = getZxingReader();
-  if (!reader) return null;
-
-  try {
-    let w = videoElement.videoWidth;
-    let h = videoElement.videoHeight;
-    // Downscale ke 600px max width agar binarisasi & ekstraksi piksel super cepat (~15ms)
-    if (w > 600) {
-      h = Math.round((h * 600) / w);
-      w = 600;
-    }
-    if (!scanCanvas) {
-      scanCanvas = document.createElement('canvas');
-      scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
-    }
-    if (scanCanvas.width !== w || scanCanvas.height !== h) {
-      scanCanvas.width = w;
-      scanCanvas.height = h;
-    }
-    scanCtx.drawImage(videoElement, 0, 0, w, h);
-
-    const source = new ZXing.HTMLCanvasElementLuminanceSource(scanCanvas);
-
-    // Pass 1: HybridBinarizer (Paling cepat untuk mayoritas frame)
-    try {
-      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(source));
-      const res = reader.decode(bitmap, zxingHints);
-      if (res && res.getText()) return res.getText();
-    } catch(e){}
-
-    // Pass 2: GlobalHistogramBinarizer (Fallback ampuh untuk layar HP, Moiré pattern & kilauan cahaya)
-    try {
-      const bitmap = new ZXing.BinaryBitmap(new ZXing.GlobalHistogramBinarizer(source));
-      const res = reader.decode(bitmap, zxingHints);
-      if (res && res.getText()) return res.getText();
-    } catch(e){}
-
-  } catch(e) {}
-  return null;
-}
-
-async function startScan(target){
-  setState({ scan:true, scanTarget:target, scanManual:'', scanMsg:'', prodForm: target==='pbarcode' ? false : S.prodForm });
-  const hasZxing = 'ZXing' in window;
-  const hasNative = 'BarcodeDetector' in window;
-  if(!hasNative && !hasZxing){
-    setState({ scanMsg:'Browser ini tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
-    return;
-  }
-  if(hasNative) {
-    scanDetector = scanDetector || new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
-  }
-  try {
-    await openScanDevice(S.scanDeviceId);
-    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-    setState({ scanDevices: devices });
-  } catch(e){
-    const isInsecure = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
-    const msg = isInsecure
-      ? 'Kamera diblokir karena koneksi HTTP (tidak aman). Gunakan HTTPS (mis. localtunnel) atau buka via localhost — atau ketik nomor barcode di bawah.'
-      : 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.';
-    setState({ scanMsg: msg });
-  }
-}
-async function openScanDevice(deviceId){
-  clearInterval(scanTimer); scanTimer = null;
-  if(scanStream) scanStream.getTracks().forEach(t => t.stop());
-  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
-  const vOpts = deviceId
-    ? { deviceId:{ exact:deviceId } }
-    : isMobile
-      ? { facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }
-      : { width:{ ideal:1280 }, height:{ ideal:720 } };
-  try {
-    scanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
-  } catch(e){
-    // Fallback universal untuk semua kamera laptop/webcam PC
-    scanStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  }
-  try {
-    const track = scanStream.getVideoTracks()[0];
-    if (track && track.getCapabilities) {
-      const caps = track.getCapabilities();
-      if (caps.focusMode && caps.focusMode.includes('continuous')) {
-        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-      }
-    }
-  } catch(e){}
-  setState({ scanDeviceId: scanStream.getVideoTracks()[0]?.getSettings().deviceId || null, scanMsg:'' });
-  render();
-  scanTimer = setInterval(scanTick, 120);
-}
-async function changeScanDevice(deviceId){
-  try { await openScanDevice(deviceId); }
-  catch(e){ setState({ scanMsg:'Gagal ganti kamera — coba pilih lagi.' }); }
-}
-let scanBusy = false;
-async function scanTick(){
-  const v = document.getElementById('scan-video');
-  if(!v || v.readyState < 2 || scanBusy) return;
-  scanBusy = true;
-  try {
-    let codeFound = null;
-    if(scanDetector){
-      try {
-        const codes = await scanDetector.detect(v);
-        if(codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
-      } catch(e){}
-    }
-    if(!codeFound){
-      codeFound = decodeFrameFromVideo(v);
-    }
-    if(codeFound) handleScanResult(codeFound);
-  } catch(e){ /* frame gagal dideteksi */ }
-  finally { scanBusy = false; }
-}
-function handleScanResult(code){
-  code = String(code||'').trim();
-  if(!code) return;
-  const now = Date.now();
-  if(code === lastScanCode && now - lastScanAt < 2500) return;
-  lastScanCode = code; lastScanAt = now;
-
-  if(S.scanTarget === 'pbarcode'){
-    stopScan();
-    setState({ pBarcode: code });
-    flash('Barcode terbaca: '+code);
-    return;
-  }
-  const p = DB.products.find(x => x.barcode === code);
-  if(!p){ flash('Barcode '+code+' tidak cocok dengan produk mana pun'); return; }
-  stopScan();
-  setState({ restockId:p.id, restockQty:'' });
-  flash(p.name+' ditemukan — masukkan jumlah stok');
-}
 // laporan penjualan pada satu tanggal (barang apa yang laku hari itu) — on-demand,
 // ikut cabang yang sedang dipilih di topbar.
 async function loadSalesByDate(tanggal){
@@ -619,109 +428,6 @@ async function openStockHistory(p){
     if(S.histId === p.id) setState({ histRows:r.movements });   // abaikan kalau user sudah pindah/tutup
   } catch(e){ setState({ histId:null, histRows:null }); flash(e.message); }
 }
-function stopScan(){
-  clearInterval(scanTimer); scanTimer = null;
-  if(scanStream){ scanStream.getTracks().forEach(t => t.stop()); scanStream = null; }
-  setState({ scan:false, prodForm: S.scanTarget==='pbarcode' ? true : S.prodForm });
-}
-
-/* ---- scan kamera KASIR (stream & state terpisah dari scan admin) ---- */
-let kScanStream = null, kScanTimer = null, kScanDetector = null;
-let kLastCode = '', kLastAt = 0, kScanBusy = false;
-
-async function startScanKasir(mode) {
-  setState({ k_scanMode: mode, k_scanMsg: '', k_scanManual: '' });
-  const hasZxing  = 'ZXing' in window;
-  const hasNative = 'BarcodeDetector' in window;
-  if (!hasNative && !hasZxing) {
-    setState({ k_scanMsg: 'Browser tidak mendukung deteksi otomatis — ketik nomor barcode di bawah.' });
-    return;
-  }
-  if (hasNative) {
-    kScanDetector = kScanDetector || new BarcodeDetector({ formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39'] });
-  }
-  try {
-    await openKScanDevice(S.k_scanDeviceId);
-    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-    setState({ k_scanDevices: devices });
-  } catch(e) {
-    const isInsecure = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
-    const msg = isInsecure
-      ? 'Kamera diblokir karena koneksi HTTP (tidak aman). Gunakan HTTPS atau buka via localhost — atau ketik nomor barcode di bawah.'
-      : 'Kamera tidak tersedia atau izin ditolak — ketik nomor barcode di bawah.';
-    setState({ k_scanMsg: msg });
-  }
-}
-async function openKScanDevice(deviceId) {
-  clearInterval(kScanTimer); kScanTimer = null;
-  if (kScanStream) kScanStream.getTracks().forEach(t => t.stop());
-  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
-  const vOpts = deviceId
-    ? { deviceId: { exact: deviceId } }
-    : isMobile
-      ? { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-      : { width: { ideal: 1280 }, height: { ideal: 720 } };
-  try {
-    kScanStream = await navigator.mediaDevices.getUserMedia({ video: vOpts });
-  } catch(e) {
-    kScanStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  }
-  try {
-    const track = kScanStream.getVideoTracks()[0];
-    if (track && track.getCapabilities) {
-      const caps = track.getCapabilities();
-      if (caps.focusMode && caps.focusMode.includes('continuous')) {
-        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-      }
-    }
-  } catch(e){}
-  setState({ k_scanDeviceId: kScanStream.getVideoTracks()[0]?.getSettings().deviceId || null, k_scanMsg: '' });
-  render();
-  kScanTimer = setInterval(kScanTick, 120);
-}
-async function changeScanDeviceKasir(deviceId) {
-  try { await openKScanDevice(deviceId); }
-  catch(e) { setState({ k_scanMsg: 'Gagal ganti kamera — coba pilih lagi.' }); }
-}
-async function kScanTick() {
-  const v = document.getElementById('k-scan-video');
-  if (!v || v.readyState < 2 || kScanBusy) return;
-  kScanBusy = true;
-  try {
-    let codeFound = null;
-    if (kScanDetector) {
-      try {
-        const codes = await kScanDetector.detect(v);
-        if (codes.length && codes[0].rawValue) codeFound = codes[0].rawValue;
-      } catch(e){}
-    }
-    if (!codeFound) {
-      codeFound = decodeFrameFromVideo(v);
-    }
-    } catch(e) { /* frame tidak terbaca */ }
-  finally { kScanBusy = false; }
-}
-function handleScanKasir(code) {
-  code = String(code || '').trim();
-  if (!code) return;
-  const now = Date.now();
-  if (code === kLastCode && now - kLastAt < 2500) return;
-  kLastCode = code; kLastAt = now;
-  document.dispatchEvent(new CustomEvent('k-scan-result', { detail: { code, mode: S.k_scanMode } }));
-}
-function stopScanKasir() {
-  clearInterval(kScanTimer); kScanTimer = null;
-  if (kScanStream) { kScanStream.getTracks().forEach(t => t.stop()); kScanStream = null; }
-  if (kZxingReader) kZxingReader.reset();
-  setState({ k_scanMode: null });
-}
-async function saveRestockKasir(productId, qty) {
-  await api('/api/products/' + productId + '/restock', 'POST', { qty });
-  const boot = await api('/api/bootstrap');
-  Object.assign(DB, boot);
-  setState({ k_restockId: null, k_restockQty: '' });
-}
-
 async function saveRestock(){
   const qty = parseInt(S.restockQty)||0;
   if(!qty){ flash('Isi jumlah stok yang ditambahkan'); return; }
@@ -927,9 +633,9 @@ function renderVals(){
       dueColor: over?'var(--danger)':'var(--warn)',
       dotBg: over?'var(--dangertint)':'var(--warntint)', dotColor: over?'var(--danger)':'var(--warn)' }; });
 
-  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', promo:'Promo', biaya:'Biaya', shopee:'Shopee' };
-  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', promo:'Promo & Bundle', biaya:'Biaya Operasional', shopee:'Integrasi Shopee' };
-  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','promo','biaya','shopee'];
+  const sectionTitlesMobile = { dashboard:'Dashboard', piutang:'Piutang', tempo:'Jatuh Tempo', stok:'Stok', users:'User', laporan:'Laporan', produk:'Produk', supplier:'Supplier', biaya:'Biaya', shopee:'Shopee' };
+  const sectionTitles = { dashboard:'Dashboard', piutang:'Piutang & Tempo', tempo:'Jatuh Tempo', stok:'Manajemen Stok', users:'Manajemen User', laporan:'Laporan Omset', produk:'Produk & Harga', supplier:'Pembelian / Supplier', biaya:'Biaya Operasional', shopee:'Integrasi Shopee' };
+  const adminSet = ['dashboard','piutang','tempo','stok','users','laporan','produk','supplier','biaya','shopee'];
 
   const chip = (on)=> on ? {bd:'var(--gold)',bg:'var(--goldtint2)',cl:'var(--gold)'} : {bd:'var(--border)',bg:'var(--surface2)',cl:'var(--muted)'};
 
@@ -943,7 +649,6 @@ function renderVals(){
     {section:'Inventori'},
     {k:'stok',label:'Manajemen Stok'},
     {k:'produk',label:'Produk & Harga'},
-    {k:'promo',label:'Promo & Bundle'},
     {section:'Laporan'},
     {k:'laporan',label:'Laporan Omset'},
     {section:'Pengaturan'},
@@ -956,11 +661,10 @@ function renderVals(){
     return { label:d.label, nested:!!d.nested, icon:ic(d.k, on?'var(--gold)':'var(--muted2)', d.nested?16:19),
       bg:on?'var(--goldtint2)':'transparent', cl:on?'var(--gold)':'var(--muted2)', bd:on?'rgba(212,175,55,.4)':'transparent',
       onClick:go(d.k) }; });
-  const giftIcon = ic('promo','var(--gold)',26);
   const refreshIcon = ic('refresh','var(--gold)',16);
   const settingsIcon = ic('settings','var(--gold)',16);
 
-  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','promo','biaya','shopee'];
+  const bottomTabsMore = ['tempo','produk','laporan','users','supplier','biaya','shopee'];
   const moreActive = S.more || bottomTabsMore.includes(S.screen) || S.screen==='settings';
   const bnColor = (on) => on ? 'var(--gold)' : 'var(--muted2)';
   const bottomNav = [
@@ -970,7 +674,7 @@ function renderVals(){
   ].map(t => ({ ...t, icon:ic(t.key, bnColor(t.on), 21), cl:bnColor(t.on) }));
   const moreDef = [
     {k:'tempo',label:'Jatuh Tempo'}, {k:'produk',label:'Produk & Harga'}, {k:'laporan',label:'Laporan Omset'},
-    {k:'users',label:'Manajemen User'}, {k:'supplier',label:'Pembelian'}, {k:'promo',label:'Promo & Bundle'},
+    {k:'users',label:'Manajemen User'}, {k:'supplier',label:'Pembelian'},
     {k:'biaya',label:'Biaya Operasional'}, {k:'shopee',label:'Shopee'},
   ];
   const moreItems = moreDef.map(d => ({ label:d.label, icon:ic(d.k,'var(--gold)',21), onClick:go(d.k) }));
@@ -1147,10 +851,6 @@ function renderVals(){
     };
   });
 
-  const promoRows = DB.promos.map(p => ({ ...p,
-    color: p.type==='Bundle' ? 'var(--gold)' : 'var(--ok)',
-    onDelete:()=>deletePromo(p) }));
-
   const expenseRows = DB.expenses.filter(e => branch==='Semua' || e.cabang===branch).map(e => {
     const dl = e.recurring ? daysLeft(e.date) : null;
     const over = e.recurring && !e.paid && dl < 0;
@@ -1195,7 +895,7 @@ function renderVals(){
     adminShell: S.role==='admin' && adminSet.includes(S.screen),
     secDashboard: S.screen==='dashboard', secPiutang: S.screen==='piutang', secTempo: S.screen==='tempo',
     secStok: S.screen==='stok', secUsers: S.screen==='users', secLaporan: S.screen==='laporan',
-    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secPromo: S.screen==='promo', secBiaya: S.screen==='biaya', secShopee: S.screen==='shopee',
+    secProduk: S.screen==='produk', secSupplier: S.screen==='supplier', secBiaya: S.screen==='biaya', secShopee: S.screen==='shopee',
     sectionTitle: (isMobile ? sectionTitlesMobile[S.screen] : sectionTitles[S.screen]) || 'Dashboard',
     isAdmin: S.role==='admin',
     isNarrow,
@@ -1210,7 +910,7 @@ function renderVals(){
     branchFont: isMobile ? 12 : 13,
     contentPadX: isMobile ? 14 : 28,
     contentPadTop: isMobile ? 16 : 26,
-    sidebarItems, giftIcon, refreshIcon, settingsIcon,
+    sidebarItems, refreshIcon, settingsIcon,
     bottomNav, moreItems, moreOpen:S.more, moreActiveColor:bnColor(moreActive),
     openMore:()=>setState({more:true}), closeMore:()=>setState({more:false}),
 
@@ -1295,15 +995,9 @@ function renderVals(){
     },
     branchRows: DB.branches.map(b=>({ id:b.id, name:b.name, onEdit:()=>editBranch(b) })),
 
-    scan:S.scan, closeScan:()=>stopScan(),
-    scanMsg:S.scanMsg,
-    scanDevices:S.scanDevices, scanDeviceId:S.scanDeviceId, onScanDevice:(e)=>changeScanDevice(e.target.value),
-    scanManual:S.scanManual, onScanManual:(e)=>setState({scanManual:e.target.value}),
-    useManual:()=>handleScanResult(S.scanManual),
-
     piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0, piutangTotalText:rp(piutangTotal),
     tempoRows, tempoEmpty:tempoRows.length===0,
-    stokRows, catChips, openScanStok:()=>startScan('stok'), stokEmpty:stokRows.length===0,
+    stokRows, catChips, stokEmpty:stokRows.length===0,
     histOpen: S.histId!==null, histName:S.histName, histRows:S.histRows||[],
     histLoading: S.histId!==null && S.histRows===null,
     histEmpty: S.histRows!==null && (S.histRows||[]).length===0,
@@ -1329,7 +1023,7 @@ function renderVals(){
     kCatOptions: DB.categories.map(c=>c.name),
     prodBranchOptions: allBranches(),
     openProdForm:()=>setState({prodForm:true, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
-      pHarga:'', pModal:'', pStok:'', pBarcode:'', pExp:'',
+      pHarga:'', pModal:'', pStok:'', pExp:'',
       pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
     closeProdForm:()=>setState({prodForm:false}),
     pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
@@ -1338,10 +1032,8 @@ function renderVals(){
     pHargaText: S.pHarga, onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
     pModalText: S.pModal, onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
     pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
-    pBarcode:S.pBarcode, onPBarcode:(e)=>setState({pBarcode:e.target.value}),
     pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
     pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
-    openScan:()=>startScan('pbarcode'), // tombol scan di form produk → isi kolom barcode
     saveProd:()=>saveProduct(),
     salesDate:S.salesDate,
     salesDateLoading: !!S.salesDate && S.salesDateData === null,
@@ -1385,15 +1077,6 @@ function renderVals(){
     poDue:S.poDue, onPoDue:(e)=>setState({poDue:e.target.value}),
     saveSupplier:()=>saveSupplier(),
 
-    promoRows,
-    promoForm:S.promoForm,
-    newPromo:()=>setState({promoForm:true, prName:'', prDesc:'', prType:'Bundle', prValue:''}),
-    closePromoForm:()=>setState({promoForm:false}),
-    prName:S.prName, onPrName:(e)=>setState({prName:e.target.value}),
-    prDesc:S.prDesc, onPrDesc:(e)=>setState({prDesc:e.target.value}),
-    prValue:S.prValue, onPrValue:(e)=>setState({prValue:e.target.value}),
-    prTypeTiles: ['Bundle','Diskon'].map(t=>({ label:t, on:S.prType===t, onClick:()=>setState({prType:t}) })),
-    savePromo:()=>savePromo(),
 
     expenseRows, expenseMonthTotalText: rp(expenseMonthTotal), expenseEmpty: expenseRows.length===0,
 
@@ -1450,7 +1133,6 @@ const svgSun = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="n
 const svgMoon = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke="#D4AF37" stroke-width="1.8" stroke-linejoin="round"></path></svg>`;
 const svgBellIc = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" stroke="#D4AF37" stroke-width="1.7" stroke-linejoin="round"></path><path d="M10 20a2 2 0 0 0 4 0" stroke="#D4AF37" stroke-width="1.7" stroke-linecap="round"></path></svg>`;
 const svgGear = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="#D4AF37" stroke-width="1.7"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="#D4AF37" stroke-width="1.7"></path></svg>`;
-const svgScanIc = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M6 12h12" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round"></path></svg>`;
 const svgSearchIc = (w,left) => `<svg style="position:absolute;left:${left}px;" width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="#6c6c74" stroke-width="1.8"></circle><path d="M16 16l4 4" stroke="#6c6c74" stroke-width="1.8" stroke-linecap="round"></path></svg>`;
 const svgCartIc = w => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none"><path d="M3 4h2l2.4 12.2a1 1 0 0 0 1 .8h8.7a1 1 0 0 0 1-.8L21 8H6" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="9" cy="20" r="1.4" fill="#D4AF37"></circle><circle cx="18" cy="20" r="1.4" fill="#D4AF37"></circle></svg>`;
 const themeBtn = (V, box, icon, rad) => `<button ${A(V.toggleTheme)} style="width:${box}px;height:${box}px;border-radius:${rad}px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;">${V.isLight ? svgSun(icon) : svgMoon(icon)}</button>`;
@@ -2040,7 +1722,6 @@ function secStokHtml(V){
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button ${A(V.openCatForm)} style="height:42px;padding:0 16px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Kelola Kategori</button>
-        <button ${A(V.openScanStok)} style="height:42px;padding:0 18px;border-radius:12px;border:1px dashed var(--goldborder);background:var(--goldtint);color:var(--gold);font-size:13.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;display:flex;align-items:center;gap:9px;">${svgScanIc(18)}Tambah Stok via Scan</button>
       </div>
     </div>
     ${V.isDesktop ? `
@@ -2396,23 +2077,6 @@ function secBiayaHtml(V){
   </div>`;
 }
 
-function secPromoHtml(V){
-  return `<div style="${V.popScreen}">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
-      <button ${A(V.newPromo)} style="height:44px;padding:0 20px;border-radius:12px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-size:14px;font-weight:700;cursor:pointer;font-family:'Saira',sans-serif;letter-spacing:.03em;">+ Buat Promo / Bundle</button>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;">
-      ${V.promoRows.map(p => `
-        <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:15px;padding:18px;display:flex;align-items:center;gap:15px;">
-          <div style="width:52px;height:52px;flex:none;border-radius:14px;background:var(--goldtint);display:flex;align-items:center;justify-content:center;">${V.giftIcon}</div>
-          <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:600;">${esc(p.name)}</div><div style="font-size:12px;color:var(--muted);margin-top:3px;">${esc(p.desc)}</div></div>
-          <div style="text-align:right;"><div style="font-size:11px;color:var(--muted);">${esc(p.type)}</div><div style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${p.color};">${esc(p.value)}</div></div>
-          <button ${A(p.onDelete)} title="hapus-promo-${esc(p.name)}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:15px;line-height:1;cursor:pointer;">×</button>
-        </div>`).join('')}
-    </div>
-  </div>`;
-}
-
 function secShopeeHtml(V){
   return `<div style="${V.popScreen}display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 20px;">
     <div style="width:96px;height:96px;border-radius:28px;background:linear-gradient(150deg,#EE4D2D,#c93b1f);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 34px -10px rgba(238,77,45,.5);margin-bottom:24px;">
@@ -2429,7 +2093,7 @@ function adminHtml(V){
   const sections = {
     dashboard: secDashboardHtml, piutang: secPiutangHtml, tempo: secTempoHtml, stok: secStokHtml,
     users: secUsersHtml, laporan: secLaporanHtml, produk: secProdukHtml, supplier: secSupplierHtml,
-    promo: secPromoHtml, biaya: secBiayaHtml, shopee: secShopeeHtml,
+    biaya: secBiayaHtml, shopee: secShopeeHtml,
   };
   const sec = sections[S.screen] ? sections[S.screen](V) : '';
   return `
@@ -2615,46 +2279,6 @@ function bellHtml(V){
   </div>`;
 }
 
-function scanHtml(V){
-  return `
-  <div ${A(V.closeScan)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--panel);border:1px solid var(--border);border-radius:22px;overflow:hidden;${V.popModal('scan')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
-    <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--divider);">
-      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:17px;">Scan Barcode</span>
-      <div style="display:flex;align-items:center;gap:8px;">
-        ${V.scanDevices.length > 1 ? `
-          <div style="width:140px;">
-            ${customSelectHtml('scandevice', V.scanDeviceId, V.scanDevices.map((d,i) => ({ value: d.deviceId, label: d.label || ('Kamera '+(i+1)) })), (v) => changeScanDevice(v), 'Pilih kamera...', 34)}
-          </div>
-        ` : ''}
-        <button ${A(V.closeScan)} style="background:var(--chip);border:1px solid var(--border);color:var(--text);width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;flex:none;">×</button>
-      </div>
-    </div>
-    <div style="height:300px;position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 45%,var(--surface3),var(--bg));overflow:hidden;">
-      <video id="scan-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
-      ${V.scanMsg ? `
-        <div style="position:relative;z-index:2;max-width:320px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;font-size:13px;color:var(--text2);line-height:1.55;">${esc(V.scanMsg)}</div>
-      ` : `
-        <div style="position:relative;z-index:2;width:230px;height:230px;border-radius:20px;border:2px solid var(--goldborder);">
-          <i style="position:absolute;left:5%;right:5%;height:2px;background:var(--gold);box-shadow:0 0 12px var(--gold);animation:ssScan 1.8s ease-in-out infinite alternate;"></i>
-          <span style="position:absolute;top:8px;left:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:5px 0 0 0;"></span>
-          <span style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-top:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 5px 0 0;"></span>
-          <span style="position:absolute;bottom:8px;left:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-left:3px solid var(--gold);border-radius:0 0 0 5px;"></span>
-          <span style="position:absolute;bottom:8px;right:8px;width:22px;height:22px;border-bottom:3px solid var(--gold);border-right:3px solid var(--gold);border-radius:0 0 5px 0;"></span>
-        </div>
-        <div style="position:absolute;bottom:14px;left:0;right:0;z-index:2;text-align:center;font-size:13px;color:var(--text2);text-shadow:0 1px 6px rgba(0,0,0,.7);">Arahkan kamera ke barcode produk (EAN-13)</div>
-      `}
-    </div>
-    <div style="padding:14px 18px 18px;">
-      ${lbl('Atau ketik nomor barcode')}
-      <div style="display:flex;gap:8px;margin-top:7px;">
-        <input id="i-scanmanual" value="${esc(V.scanManual)}" ${I(V.onScanManual)} inputmode="numeric" placeholder="cnt. 8991234500017" style="flex:1;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:15px;letter-spacing:.06em;padding:0 14px;outline:none;font-family:'Saira',sans-serif;font-weight:600;">
-        <button ${A(V.useManual)} style="flex:none;height:48px;padding:0 18px;border-radius:12px;border:none;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">GUNAKAN</button>
-      </div>
-    </div>
-  </div>`;
-}
-
 function branchFormHtml(V){
   const pad = V.isMobile ? '20px 16px' : '22px';
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
@@ -2756,12 +2380,7 @@ function prodFormHtml(V){
         <div>${lbl('Cabang')}${customSelectHtml('pbranch', V.pBranch, V.prodBranchOptions, (v) => setState({ pBranch: v }), 'Pilih cabang...')}</div>
         <div>${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div>${lbl('Barcode')}
-          <div style="display:flex;gap:6px;"><input id="i-pbarcode" value="${esc(V.pBarcode)}" ${I(V.onPBarcode)} placeholder="—" style="flex:1;min-width:0;height:48px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 10px;outline:none;font-family:'Hanken Grotesk',sans-serif;"><button ${A(V.openScan)} style="width:42px;flex:none;height:48px;border-radius:12px;background:var(--goldtint);border:1px solid var(--goldborder);cursor:pointer;display:flex;align-items:center;justify-content:center;">${svgScanIc(18)}</button></div>
-        </div>
-        <div>${lbl('Kedaluwarsa')}${customMonthPickerHtml('pexp', V.pExp, (v) => setState({ pExp: v }), 'Pilih bulan...')}</div>
-      </div>
+      <div>${lbl('Kedaluwarsa')}${customMonthPickerHtml('pexp', V.pExp, (v) => setState({ pExp: v }), 'Pilih bulan...')}</div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px;">
       <button ${A(V.closeProdForm)} style="flex:none;width:95px;height:48px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
@@ -2924,32 +2543,6 @@ function confirmDeleteHtml(V){
   </div>`;
 }
 
-function promoFormHtml(V){
-  const pad = V.isMobile ? '20px 16px' : '22px';
-  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(460px, calc(100vw - 32px))';
-  const tile = (t) => `<button ${A(t.onClick)} style="flex:1;min-width:100px;height:44px;border-radius:11px;cursor:pointer;border:1px solid ${t.on?'var(--gold)':'var(--border)'};background:${t.on?'var(--goldtint2)':'var(--surface2)'};color:${t.on?'var(--gold)':'var(--muted)'};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13.5px;font-family:'Hanken Grotesk',sans-serif;">${t.label}</button>`;
-  return `
-  <div ${A(V.closePromoForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('promoForm')}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Buat Promo / Bundle</h3>
-      <button ${A(V.closePromoForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div>${lbl('Nama Promo')}<input id="i-prname" value="${esc(V.prName)}" ${I(V.onPrName)} placeholder="cnt. Paket Pemula" style="${inputStyle(48)}"></div>
-      <div>${lbl('Deskripsi')}<input id="i-prdesc" value="${esc(V.prDesc)}" ${I(V.onPrDesc)} placeholder="cnt. Whey 2lb + Shaker Bottle" style="${inputStyle(48)}"></div>
-      <div>${lbl('Tipe')}
-        <div style="display:flex;gap:8px;margin-top:2px;">${V.prTypeTiles.map(tile).join('')}</div>
-      </div>
-      <div>${lbl('Nilai')}<input id="i-prvalue" value="${esc(V.prValue)}" ${I(V.onPrValue)} placeholder="cnt. 15% atau Hemat Rp40.000" style="${inputStyle(48)}"></div>
-    </div>
-    <div style="display:flex;gap:10px;margin-top:18px;">
-      <button ${A(V.closePromoForm)} style="flex:none;width:95px;height:48px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.savePromo)} style="flex:1;height:48px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN PROMO</button>
-    </div>
-  </div>`;
-}
-
 function restockHtml(V){
   const pad = V.isMobile ? '20px 16px' : '22px';
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(400px, calc(100vw - 32px))';
@@ -3021,7 +2614,6 @@ function html(V){
     ${V.scrSettings ? settingsHtml(V) : ''}
     ${V.memberDropdown ? memberDdPanelHtml(V) : ''}
     ${V.bell ? bellHtml(V) : ''}
-    ${V.scan ? scanHtml(V) : ''}
     ${V.branchForm ? branchFormHtml(V) : ''}
     ${V.catForm ? catFormHtml(V) : ''}
     ${V.userForm ? userFormHtml(V) : ''}
@@ -3029,7 +2621,6 @@ function html(V){
     ${V.poForm ? poFormHtml(V) : ''}
     ${V.biayaForm ? biayaFormHtml(V) : ''}
     ${V.bxCatForm ? bxCatFormHtml(V) : ''}
-    ${V.promoForm ? promoFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
     ${V.histOpen ? stockHistoryHtml(V) : ''}
     ${V.confirmPay ? confirmPayHtml(V) : ''}
@@ -3048,9 +2639,9 @@ function render(){
   // Animasi masuk hanya diputar saat layar/pop-up BARU muncul — bukan di setiap
   // render ulang (full re-render tiap interaksi membuat layar terasa "bergerak").
   const sameScreen = S.screen === lastScreen;
-  const openNow = { bell:S.bell, scan:S.scan, branchForm:S.branchForm, catForm:S.catForm,
+  const openNow = { bell:S.bell, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
-    poForm:S.poForm, promoForm:S.promoForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null, hist:S.histId!==null,
+    poForm:S.poForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null, hist:S.histId!==null,
     branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
@@ -3078,16 +2669,6 @@ function render(){
   }
   lastScreen = S.screen;
   prevOpen = openNow;
-  // modal scan admin: innerHTML membuat <video> baru tiap render → pasang ulang stream kamera
-  if(S.scan && scanStream){
-    const v = document.getElementById('scan-video');
-    if(v && v.srcObject !== scanStream){ v.srcObject = scanStream; v.play().catch(()=>{}); }
-  }
-  // modal scan kasir: pasang stream ke elemen k-scan-video
-  if(S.k_scanMode && kScanStream){
-    const kv = document.getElementById('k-scan-video');
-    if(kv && kv.srcObject !== kScanStream){ kv.srcObject = kScanStream; kv.play().catch(()=>{}); }
-  }
   // custom portal panel positioning & auto-flip
   const activePicker = S.activeDD || S.activeDP || S.activeMP;
   if (activePicker) {
@@ -3193,8 +2774,6 @@ function cashierPlaceholder(V){
 window.SS = {
   get S(){ return S; }, get DB(){ return DB; }, get USER(){ return USER; },
   setState, api, flash, render, A, I, esc, rp, rpShort, ic, go, logout,
-  // scan kamera kasir (stream terpisah dari scan admin)
-  startScanKasir, stopScanKasir, changeScanDeviceKasir, saveRestockKasir,
   registerCashier(fn){ cashierRenderer = fn; if(S.screen==='cashier') render(); },
 };
 

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
-use App\Models\Promo;
 use App\Models\Receivable;
 use App\Models\Supplier;
 use App\Models\Transaction;
@@ -24,7 +23,7 @@ class DashboardController extends Controller
             'products' => Product::with('branch')->orderBy('id')->get()->map(fn ($p) => [
                 'id' => $p->id, 'name' => $p->name, 'varian' => $p->varian,
                 'harga' => $p->harga, 'modal' => $p->modal, 'kategori' => $p->kategori,
-                'barcode' => $p->barcode, 'exp' => $p->exp, 'stok' => $p->stok,
+                'exp' => $p->exp, 'stok' => $p->stok,
                 'cabang' => $p->branch->name, 'photo' => $p->photo, 'custom' => $p->custom,
             ]),
             'receivables' => Receivable::with('branch')->orderByDesc('id')->get()->map(fn ($r) => [
@@ -40,7 +39,6 @@ class DashboardController extends Controller
                 'id' => $s->id, 'name' => $s->name, 'amount' => $s->amount,
                 'due' => $s->due_date->toDateString(), 'paid' => $s->paid,
             ]),
-            'promos' => Promo::orderBy('id')->get(['id', 'name', 'desc', 'type', 'value']),
         ]);
     }
 

@@ -22,7 +22,6 @@ body { margin:0; background:#0a0a0c; }
 @keyframes ssModal { from{ transform:translate(-50%, calc(-50% + 12px)); opacity:.5 } to{ transform:translate(-50%, -50%); opacity:1 } }
 @keyframes ssModal { from{ opacity:0; transform:translate(-50%,-50%) scale(.96) } to{ opacity:1; transform:translate(-50%,-50%) scale(1) } }
 @keyframes ssToast { from{ transform:translate(-50%,12px); opacity:0 } to{ transform:translate(-50%,0); opacity:1 } }
-@keyframes ssScan { 0%{ top:6% } 100%{ top:90% } }
 .ss-root{
   --bg:#0a0a0c;--panel:#0e0e11;--surface:#141417;--surface2:#16161b;--surface3:#1a1a1f;--input:#0f0f12;--chip:#1f1f26;--divider:#1c1c21;--border:#2A2A31;--border2:#23232a;--barempty:#33333b;--text:#F4F3EE;--text2:#cfcfd4;--muted:#8E8E97;--muted2:#9a9aa2;--dim:#6c6c74;--dim2:#5b5b62;--gold:#D4AF37;--goldsoft:#cbbf8e;--goldhi:#EBC95C;--golddeep:#b8922a;--g1:#15130d;--g2:#241f10;--g3:#221d10;--g4:#141210;--g5:#1c1418;--g6:#141114;--g7:#1c1c20;--g8:#101013;--g9:#121215;--hover:rgba(255,255,255,.05);
   --goldtint:rgba(212,175,55,.1);--goldtint2:rgba(212,175,55,.15);--goldborder:rgba(212,175,55,.35);
