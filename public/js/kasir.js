@@ -147,6 +147,12 @@
       SS.flash('Harga tidak boleh 0');
       return;
     }
+    // Server menolak harga di atas harga normal (cekHargaTidakDinaikkan).
+    // Dijaga di sini juga supaya kasir tahu sekarang, bukan pas checkout.
+    if (newPrice > item.harga) {
+      SS.flash('Harga tidak boleh melebihi harga normal (' + SS.rp(item.harga) + ')');
+      return;
+    }
 
     item.hargaJual = newPrice;
     item.priceNote = (newPrice !== item.harga) ? note : '';

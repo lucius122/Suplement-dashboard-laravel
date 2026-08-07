@@ -88,6 +88,42 @@ class PenjualanServiceTest extends TestCase
         $this->assertNull($trx->change, 'bayar kurang = potongan, kembalian null (bukan 0)');
     }
 
+    /**
+     * Menguji kontrak HTTP-nya, bukan service-nya: bentuk payload di sini disalin
+     * dari _saveTrx() di public/js/kasir.js. Kalau aturan validasi controller
+     * bergeser (mis. due_date diwajibkan lagi), tes ini merah lebih dulu daripada
+     * layar kasir yang diam-diam 422.
+     */
+    public function test_endpoint_menerima_payload_kasir_dan_mengembalikan_trx_id(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 5);
+
+        $resp = $this->actingAs($kasir)->postJson('/api/transactions', [
+            'items' => [['product_id' => $produk->id, 'qty' => 2, 'price' => 95000]],
+            'method' => 'tunai',
+            'cash' => 200000,
+            'customer_name' => null,
+        ]);
+
+        $resp->assertOk()->assertJson(['ok' => true]);
+        $this->assertNotNull($resp->json('trx_id'), 'kasir.js memakai trx_id untuk nomor nota');
+        $this->assertSame(190000, (int) \App\Models\Transaction::find($resp->json('trx_id'))->total);
+    }
+
+    public function test_endpoint_menolak_harga_di_atas_normal(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 5);
+
+        $this->actingAs($kasir)->postJson('/api/transactions', [
+            'items' => [['product_id' => $produk->id, 'qty' => 1, 'price' => 120000]],
+            'method' => 'tunai', 'cash' => 120000,
+        ])->assertStatus(422);
+
+        $this->assertSame(0, \App\Models\Transaction::count());
+    }
+
     public function test_stok_dipotong_dan_mutasi_keluar_tercatat(): void
     {
         $kasir = $this->buatKasir();
