@@ -21,17 +21,20 @@ class TransactionController extends Controller
             'items'                  => ['required', 'array', 'min:1'],
             'items.*.product_id'     => ['required', 'integer', 'exists:products,id'],
             'items.*.qty'            => ['required', 'integer', 'min:1'],
-            'items.*.price'          => ['required', 'integer', 'min:0'],
+            // Kasir boleh menurunkan harga (diskon). Batas atasnya tidak bisa
+            // dicek di sini — perlu harga DB — jadi dijaga di PenjualanService.
+            'items.*.price'          => ['required', 'integer', 'min:1'],
             'method'                 => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
             'cash'                   => ['nullable', 'integer', 'min:0'],
             'customer_name'          => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
-            'due_date'               => ['required_if:method,tempo', 'nullable', 'date'],
+            // due_date tidak dikirim client; PenjualanService memakai +1 bulan.
         ]);
 
         // Controller berhenti di sini: terima request, validasi, serahkan ke service.
-        $this->penjualan->simpan($data, $user);
+        $trx = $this->penjualan->simpan($data, $user);
 
-        return response()->json(['ok' => true]);
+        // trx_id dipakai frontend kasir untuk mencetak nomor nota
+        return response()->json(['ok' => true, 'trx_id' => $trx->id]);
     }
 
     public function payReceivable(Request $request, Receivable $receivable)

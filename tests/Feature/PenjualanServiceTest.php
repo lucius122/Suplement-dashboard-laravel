@@ -39,18 +39,53 @@ class PenjualanServiceTest extends TestCase
         ]);
     }
 
-    public function test_total_dihitung_dari_harga_db_bukan_kiriman_client(): void
+    public function test_kasir_boleh_menurunkan_harga_dan_total_ikut_turun(): void
     {
         $kasir = $this->buatKasir();
         $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 10);
 
         $trx = app(PenjualanService::class)->simpan([
-            'items' => [['product_id' => $produk->id, 'qty' => 2, 'price' => 1]], // client "menawar" jadi 1
+            'items' => [['product_id' => $produk->id, 'qty' => 2, 'price' => 90000]], // diskon Rp10.000/pcs
             'method' => 'tunai', 'cash' => 200000,
         ], $kasir);
 
-        $this->assertSame(200000, $trx->total, 'total wajib 2 x 100.000 dari DB, bukan dari price kiriman client');
-        $this->assertSame(100000, (int) $trx->items()->first()->price);
+        $this->assertSame(180000, $trx->total, 'total mengikuti harga diskon, bukan harga normal');
+        $this->assertSame(90000, (int) $trx->items()->first()->price, 'harga yang dipakai kasir wajib tersimpan apa adanya');
+        $this->assertSame(20000, (int) $trx->change);
+    }
+
+    public function test_harga_di_atas_harga_normal_ditolak(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 10);
+
+        try {
+            app(PenjualanService::class)->simpan([
+                'items' => [['product_id' => $produk->id, 'qty' => 1, 'price' => 150000]], // menaikkan diam-diam
+                'method' => 'tunai', 'cash' => 150000,
+            ], $kasir);
+            $this->fail('harga di atas harga normal seharusnya ditolak');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+        }
+
+        $this->assertSame(10, $produk->fresh()->stok, 'stok tak boleh berubah saat ditolak');
+        $this->assertSame(0, \App\Models\Transaction::count());
+    }
+
+    public function test_bayar_kurang_dari_total_dicatat_tanpa_kembalian(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 10);
+
+        $trx = app(PenjualanService::class)->simpan([
+            'items' => [['product_id' => $produk->id, 'qty' => 1, 'price' => 100000]],
+            'method' => 'tunai', 'cash' => 80000, // kasir memberi potongan Rp20.000
+        ], $kasir);
+
+        $this->assertSame(100000, $trx->total);
+        $this->assertSame(80000, (int) $trx->cash);
+        $this->assertNull($trx->change, 'bayar kurang = potongan, kembalian null (bukan 0)');
     }
 
     public function test_stok_dipotong_dan_mutasi_keluar_tercatat(): void
@@ -99,7 +134,7 @@ class PenjualanServiceTest extends TestCase
 
         $trx = app(PenjualanService::class)->simpan([
             'items' => [['product_id' => $produk->id, 'qty' => 2, 'price' => 75000]],
-            'method' => 'tempo', 'customer_name' => 'Bu Sari', 'due_date' => now()->addDays(7)->toDateString(),
+            'method' => 'tempo', 'customer_name' => 'Bu Sari',
         ], $kasir);
 
         $piutang = Receivable::where('transaction_id', $trx->id)->first();
@@ -107,5 +142,10 @@ class PenjualanServiceTest extends TestCase
         $this->assertSame('Bu Sari', $piutang->name);
         $this->assertSame(150000, (int) $piutang->amount);
         $this->assertFalse((bool) $piutang->paid);
+        $this->assertSame(
+            now()->addMonth()->toDateString(),
+            $piutang->due_date->toDateString(),
+            'jatuh tempo baku 1 bulan, tidak lagi dari kiriman client',
+        );
     }
 }

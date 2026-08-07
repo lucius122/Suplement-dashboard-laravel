@@ -31,7 +31,8 @@ class PenjualanService
             $branchId = $user->branch_id;
 
             $produk = $this->kunciDanCekStok($data['items']);
-            $total  = $this->hitungTotal($data['items'], $produk);
+            $this->cekHargaTidakDinaikkan($data['items'], $produk);
+            $total  = $this->hitungTotal($data['items']);
             $cash   = $data['method'] === 'tunai' ? ($data['cash'] ?? null) : null;
 
             $trx = Transaction::create([
@@ -40,7 +41,9 @@ class PenjualanService
                 'method'    => $data['method'],
                 'total'     => $total,
                 'cash'      => $cash,
-                'change'    => $cash !== null ? max(0, $cash - $total) : null,
+                // cash >= total → ada kembalian; cash < total → kasir memberi
+                // potongan, kembalian tidak berlaku (null), bukan nol.
+                'change'    => ($cash !== null && $cash >= $total) ? $cash - $total : null,
             ]);
 
             $this->catatItemDanPotongStok($trx, $data['items'], $produk, $branchId, $user->id);
@@ -76,10 +79,31 @@ class PenjualanService
         return $produk;
     }
 
-    /** Total SELALU dari harga di DB, bukan dari harga kiriman client (anti-manipulasi). */
-    private function hitungTotal(array $items, array $produk): int
+    /**
+     * Kasir boleh MENURUNKAN harga (diskon/potongan), tidak boleh menaikkannya.
+     *
+     * Tanpa penjagaan ini, siapa pun yang bisa mengirim request ke endpoint
+     * transaksi bebas menentukan harga jual — termasuk menaikkannya diam-diam
+     * di atas harga yang tertera. Batas atasnya harus dicek di sini, bukan di
+     * controller, karena harga acuan baru diketahui setelah baris produk
+     * dikunci. Alasan penurunan harga diisi kasir di layar (priceNote).
+     */
+    private function cekHargaTidakDinaikkan(array $items, array $produk): void
     {
-        return (int) collect($items)->sum(fn ($i) => $i['qty'] * $produk[$i['product_id']]->harga);
+        foreach ($items as $item) {
+            $p = $produk[$item['product_id']];
+            abort_if(
+                $item['price'] > $p->harga,
+                422,
+                'Harga "'.$p->name.'" tidak boleh melebihi harga normal ('.$p->harga.').',
+            );
+        }
+    }
+
+    /** Total dari harga kiriman client yang SUDAH dibatasi cekHargaTidakDinaikkan(). */
+    private function hitungTotal(array $items): int
+    {
+        return (int) collect($items)->sum(fn ($i) => $i['qty'] * $i['price']);
     }
 
     private function catatItemDanPotongStok(Transaction $trx, array $items, array $produk, int $branchId, int $userId): void
@@ -92,7 +116,8 @@ class PenjualanService
                 'product_id'     => $item['product_id'],
                 'branch_id'      => $branchId,
                 'qty'            => $item['qty'],
-                'price'          => $p->harga,
+                // harga yang BENAR-BENAR dipakai kasir, bukan harga normal DB
+                'price'          => $item['price'],
             ]);
 
             // pakai baris yang sama yang sudah dikunci & divalidasi di atas
@@ -107,7 +132,8 @@ class PenjualanService
             'name'           => $data['customer_name'],
             'amount'         => $total,
             'trx_date'       => now()->toDateString(),
-            'due_date'       => $data['due_date'],
+            // jatuh tempo baku 1 bulan; client tidak lagi mengirim due_date
+            'due_date'       => now()->addMonth()->toDateString(),
             'branch_id'      => $branchId,
             'transaction_id' => $trx->id,
             'paid'           => false,
