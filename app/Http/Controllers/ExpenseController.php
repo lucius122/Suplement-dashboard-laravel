@@ -5,15 +5,19 @@ namespace App\Http\Controllers;
 use App\Models\Branch;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
+use App\Services\BiayaRutinService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class ExpenseController extends Controller
 {
+    // di-inject otomatis oleh service container Laravel
+    public function __construct(private BiayaRutinService $biayaRutin) {}
+
     public function expenses(Request $request)
     {
         $this->assertAdmin($request);
-        $this->catchUpRecurringExpenses();
+        $this->biayaRutin->kejarBulanIni();
 
         return response()->json([
             'expenses' => Expense::with('branch')->orderByDesc('date')->get()->map(fn ($e) => [
@@ -24,41 +28,6 @@ class ExpenseController extends Controller
             ]),
             'expenseCategories' => ExpenseCategory::orderBy('id')->get(['id', 'name']),
         ]);
-    }
-
-    private function catchUpRecurringExpenses(): void
-    {
-        // Biaya rutin (mis. sewa) butuh baris baru tiap bulan tanpa cron/scheduler —
-        // begitu admin buka layar Biaya (endpoint ini dipanggil), kita cek tiap
-        // (cabang, kategori) rutin apakah sudah punya baris bulan berjalan; kalau
-        // belum, digandakan dari baris rutin terakhirnya (nominal ikut yang terbaru,
-        // jadi kalau sewa naik, baris baru otomatis pakai nominal barunya).
-        // ponytail: cuma "loncat" ke bulan ini, TIDAK mengisi bulan-bulan yang
-        // terlewat kalau aplikasi lama tak dibuka — upgrade ke backfill penuh
-        // kalau nanti dirasa perlu (skala toko ini kecil, jarang absen berbulan-bulan).
-        $today = now();
-        $templates = Expense::where('is_recurring', true)
-            ->orderByDesc('date')
-            ->get()
-            ->unique(fn ($e) => $e->branch_id.'|'.$e->category);
-
-        foreach ($templates as $tpl) {
-            if ($tpl->date->isSameMonth($today)) {
-                continue;
-            }
-
-            $day = min($tpl->due_day ?? 1, $today->daysInMonth);
-            Expense::create([
-                'branch_id' => $tpl->branch_id,
-                'category' => $tpl->category,
-                'note' => $tpl->note,
-                'amount' => $tpl->amount,
-                'is_recurring' => true,
-                'due_day' => $tpl->due_day,
-                'date' => $today->copy()->startOfMonth()->addDays($day - 1),
-                'paid' => false,
-            ]);
-        }
     }
 
     public function storeExpense(Request $request)
