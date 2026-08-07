@@ -153,7 +153,8 @@
       const nAll = nRows();
       // drill-down: klik baris anggota → produk yang dia jual
       click(memberRowBtns()[0]);
-      step('detail produk anggota terbuka', await waitFor(() => / pcs/.test(appEl().textContent)));
+      // " pcs" = baris data terisi; "Terjual" = header tabel ikut terender
+      step('detail produk anggota terbuka (tabel berkolom)', await waitFor(() => / pcs/.test(appEl().textContent) && has('Terjual')));
       // dropdown pilih pegawai: buka, cari di dalamnya, pilih 2
       click(btn('Semua pegawai'));
       step('dropdown pegawai terbuka + bisa dicari', await waitFor(() => !!document.getElementById('i-membersearch')));

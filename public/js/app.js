@@ -801,12 +801,18 @@ function renderVals(){
   // tabel menampilkan yang dipilih; kalau belum ada yang dipilih → semua (peringkat penuh)
   const mVisible = mSel.size ? mRanked.filter(u=>mSel.has(u.uname)) : mRanked;
   const mAllZero = mVisible.length>0 && mVisible.every(u=>u.total===0);
+  // undefined (belum dimuat) harus tetap undefined, bukan jadi [] — template
+  // membedakan "sedang memuat" dari "tidak ada penjualan".
+  const memberItemRows = (key) => {
+    const raw = DB.memberItems[key];
+    return raw && raw.map(r => ({ name:r.name, varian:r.varian, qtyText:r.qty+' pcs', totalText:rp(r.total) }));
+  };
   const memberRows = mVisible.map(u => ({
     rank:u.rank, name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang,
     totalText:rp(u.total), trxText:u.trx+'×', trxLong:u.trx+' transaksi', w:(u.total/mMax*100).toFixed(0)+'%',
     hasSales: u.total>0,
     open: S.memberOpen===u.uname, onDetail: ()=>openMemberDetail(u.uname),
-    items: DB.memberItems[u.uname+'|'+S.uPeriod], // undefined = sedang dimuat
+    items: memberItemRows(u.uname+'|'+S.uPeriod), // undefined = sedang dimuat
   }));
   // isi dropdown: seluruh pegawai, disaring oleh teks pencarian di dalam dropdown
   const mq = S.memberSearch.trim().toLowerCase();
@@ -1556,14 +1562,28 @@ const badge = (color,bg,text,fs) => `<span style="font-size:${fs||11}px;font-wei
 const chevronIc = (open,size) => `<svg width="${size||11}" height="${size||11}" viewBox="0 0 24 24" fill="none" style="display:inline-block;vertical-align:middle;flex:none;transition:transform .15s ease;transform:rotate(${open?90:0}deg);"><path d="M9 6l6 6-6 6" style="stroke:var(--muted);fill:none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 
 // rincian produk yang dijual satu anggota (drill-down, dimuat saat baris diklik)
-function memberDetailHtml(m){
+function memberDetailHtml(m, isDesktop){
   if(m.items === undefined) return `<div style="margin-top:10px;font-size:12.5px;color:var(--muted);">Memuat rincian produk…</div>`;
   if(m.items.length === 0) return `<div style="margin-top:10px;font-size:12.5px;color:var(--dim2);">Tidak ada penjualan produk pada periode ini.</div>`;
-  return `<div style="margin-top:11px;border-top:1px dashed var(--border);padding-top:10px;display:flex;flex-direction:column;gap:6px;">
-    ${m.items.map(it => `
-      <div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;">
-        <span style="min-width:0;">${esc(it.name)} <span style="color:var(--muted);">· ${esc(it.varian)}</span></span>
-        <span style="white-space:nowrap;"><span style="font-weight:700;">${+it.qty} pcs</span> <span style="color:var(--muted);">· ${rp(+it.total)}</span></span>
+  // Header & isi WAJIB pakai grid yang sama persis — kesejajaran kolom itu yang
+  // bikin tabel enak dipindai, bukan garisnya. Di mobile kolom angka dipersempit
+  // dan nama dibiarkan turun baris (bukan dipotong), karena sisa lebarnya cuma
+  // ~90px kalau memakai ukuran desktop.
+  const cols = isDesktop
+    ? 'display:grid;grid-template-columns:1fr 62px 96px;gap:10px;'
+    : 'display:grid;grid-template-columns:1fr 50px 86px;gap:7px;';
+  const nameStyle = isDesktop
+    ? 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+    : 'line-height:1.35;';
+  return `<div style="margin-top:11px;border-top:1px dashed var(--border);padding-top:10px;">
+    <div style="${cols}padding:0 9px 6px;font-family:'Saira',sans-serif;font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border2);">
+      <span>Produk</span><span style="text-align:right;">Terjual</span><span style="text-align:right;">Total</span>
+    </div>
+    ${m.items.map((it,i) => `
+      <div style="${cols}align-items:center;padding:8px 9px;font-size:12.5px;${i < m.items.length-1 ? 'border-bottom:1px solid var(--divider);' : ''}">
+        <span style="min-width:0;${nameStyle}">${esc(it.name)} <span style="color:var(--muted);">${esc(it.varian)}</span></span>
+        <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;">${esc(it.qtyText)}</span>
+        <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;">${esc(it.totalText)}</span>
       </div>`).join('')}
   </div>`;
 }
@@ -1908,7 +1928,7 @@ function secLaporanHtml(V){
                   <span style="text-align:right;font-size:12.5px;color:var(--text2);">${m.trxLong}</span>
                   <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span>
                 </button>
-                ${m.open ? memberDetailHtml(m) : ''}
+                ${m.open ? memberDetailHtml(m, V.isDesktop) : ''}
               </div>`).join('')}
           </div>` : `
           <div class="scrl" style="max-height:60dvh;overflow-y:auto;display:flex;flex-direction:column;gap:9px;">
@@ -1922,7 +1942,7 @@ function secLaporanHtml(V){
                     <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
                   </span>
                 </button>
-                ${m.open ? memberDetailHtml(m) : ''}
+                ${m.open ? memberDetailHtml(m, V.isDesktop) : ''}
               </div>`).join('')}
           </div>`}
         <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border2);margin-top:16px;padding-top:14px;gap:10px;flex-wrap:wrap;">
