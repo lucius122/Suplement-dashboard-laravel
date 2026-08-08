@@ -427,8 +427,23 @@
       const pnm = 'Produk E2E ' + String(Date.now()).slice(-5);
       type('i-pname', pnm); type('i-pharga', '99000'); type('i-pstok', '7');
       step('form produk terisi', await waitFor(() => document.getElementById('i-pname').value === pnm));
+      // varian rasa ditolak server: master barang dikelompokkan per ukuran, bukan rasa
+      type('i-pvar', 'Cokelat');
+      click(btn('SIMPAN PRODUK'));
+      step('varian rasa ditolak server', await waitFor(() => has('bukan rasa') && !has('ditambahkan')));
+      type('i-pvar', '900gr');
       click(btn('SIMPAN PRODUK'));
       step('produk baru tersimpan ke DB', await waitFor(() => has(pnm) && has('ditambahkan')));
+
+      // edit master barang: form terisi data lama → simpan → berubah di DB
+      const editBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'edit-produk-' + pnm);
+      click(editBtn());
+      step('form edit produk terbuka terisi', await waitFor(() => has('Edit Produk') && document.getElementById('i-pname')?.value === pnm && document.getElementById('i-pvar')?.value === '900gr'));
+      step('stok & cabang disembunyikan saat edit', !document.getElementById('i-pstok') && !document.getElementById('custom-trig-pbranch'));
+      const pnm2 = pnm + ' Edit';
+      type('i-pname', pnm2); type('i-pharga', '123000');
+      click(btn('SIMPAN PERUBAHAN'));
+      step('perubahan produk tersimpan ke DB', await waitFor(() => has(pnm2) && has('diperbarui') && has('Rp123.000')));
 
       // Bagian kasir dikosongkan untuk tim kasir → admin "Buka Kasir" menampilkan
       // layar yang dirender modul kasir.js (placeholder starter), bukan POS penuh.

@@ -86,7 +86,7 @@ let S = {
   userForm: false, prodForm: false,
   period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
-  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pExp:'', pBranch:'', // form tambah produk (admin)
+  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pExp:'', pBranch:'', editProdId: null, // form produk (admin); editProdId null = mode tambah
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   histId:null, histName:'', histRows:null,                  // modal riwayat stok (histId null = tutup, histRows null = masih memuat)
@@ -202,21 +202,25 @@ async function doConfirmDelete(){
 }
 
 async function saveProduct(){
+  const edit = S.editProdId !== null;
   if(!S.pName.trim()){ flash('Isi nama produk dulu'); return; }
   const harga = parseInt(S.pHarga)||0;
   if(!harga){ flash('Isi harga jual dulu'); return; }
-  if(!S.pBranch){ flash('Pilih cabang dulu'); return; }
+  if(!edit && !S.pBranch){ flash('Pilih cabang dulu'); return; }
   const nama = S.pName.trim();
+  // Saat edit, stok & cabang TIDAK dikirim: stok hanya boleh berubah lewat
+  // restock/penjualan (supaya track record jujur), cabang tidak dipindah.
+  const body = {
+    name: nama, varian: S.pVar.trim() || '-', harga,
+    modal: parseInt(S.pModal)||0, kategori: S.pKat, exp: S.pExp || null,
+  };
+  if(!edit){ body.stok = parseInt(S.pStok)||0; body.branch = S.pBranch; }
   try {
-    await api('/api/products', 'POST', {
-      name: nama, varian: S.pVar.trim() || '-', harga,
-      modal: parseInt(S.pModal)||0, stok: parseInt(S.pStok)||0,
-      kategori: S.pKat, branch: S.pBranch,
-      exp: S.pExp || null,
-    });
-    setState({ prodForm:false });
+    if(edit) await api('/api/products/'+S.editProdId, 'PATCH', body);
+    else     await api('/api/products', 'POST', body);
+    setState({ prodForm:false, editProdId:null });
     await loadAll();
-    flash('Produk "'+nama+'" ditambahkan');
+    flash('Produk "'+nama+'" '+(edit?'diperbarui':'ditambahkan'));
   } catch(e) { flash(e.message); }
 }
 
@@ -739,7 +743,9 @@ function renderVals(){
       else if(d<=90) expB={t:'Kedaluwarsa <90 hari',c:'var(--gold)',bg:'var(--goldtint)'}; }
     return { name:p.name, varian:p.varian, kategori:p.kategori, hargaText:rp(p.harga), modalText:rp(p.modal), margin,
       hasExp:!!expB, expText:expB?expB.t:'', expColor:expB?expB.c:'var(--muted)', expBg:expB?expB.bg:'transparent',
-      warnIcon:ic('warn', expB?expB.c:'var(--muted)', 13) };
+      warnIcon:ic('warn', expB?expB.c:'var(--muted)', 13),
+      onEdit:()=>setState({ prodForm:true, editProdId:p.id, pName:p.name, pVar:p.varian==='-'?'':p.varian,
+        pKat:p.kategori, pHarga:String(p.harga), pModal:String(p.modal), pStok:'', pExp:p.exp||'', pBranch:p.cabang }) };
   });
 
   const curYear = new Date().getFullYear();
@@ -1028,10 +1034,11 @@ function renderVals(){
     produkRows, prodForm:S.prodForm,
     kCatOptions: DB.categories.map(c=>c.name),
     prodBranchOptions: allBranches(),
-    openProdForm:()=>setState({prodForm:true, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
+    openProdForm:()=>setState({prodForm:true, editProdId:null, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
       pHarga:'', pModal:'', pStok:'', pExp:'',
       pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
-    closeProdForm:()=>setState({prodForm:false}),
+    closeProdForm:()=>setState({prodForm:false, editProdId:null}),
+    prodFormIsEdit: S.editProdId !== null,
     pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
     pVar:S.pVar, onPVar:(e)=>setState({pVar:e.target.value}),
     pKat:S.pKat, onPKat:(e)=>setState({pKat:e.target.value}),
@@ -2001,7 +2008,10 @@ function secProdukHtml(V){
         <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:15px;padding:16px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div><div style="font-size:14px;font-weight:600;">${esc(p.name)}</div><div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${esc(p.varian)} · ${p.kategori}</div></div>
-            <span style="font-size:10.5px;font-weight:700;color:var(--ok);background:var(--oktint);padding:3px 9px;border-radius:7px;white-space:nowrap;">Margin ${p.margin}</span>
+            <div style="display:flex;align-items:center;gap:8px;flex:none;">
+              <span style="font-size:10.5px;font-weight:700;color:var(--ok);background:var(--oktint);padding:3px 9px;border-radius:7px;white-space:nowrap;">Margin ${p.margin}</span>
+              <button ${A(p.onEdit)} title="edit-produk-${esc(p.name)}" style="height:26px;padding:0 11px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:11.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>
+            </div>
           </div>
           <div style="display:flex;gap:22px;margin-top:13px;">
             <div><div style="font-size:10.5px;color:var(--muted);">Harga Jual</div><div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:var(--gold);">${p.hargaText}</div></div>
@@ -2382,7 +2392,7 @@ function prodFormHtml(V){
   <div ${A(V.closeProdForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
   <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:${pad};${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:${V.isMobile ? '19px' : '21px'};margin:0;">Tambah Produk</h3>
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:${V.isMobile ? '19px' : '21px'};margin:0;">${V.prodFormIsEdit ? 'Edit Produk' : 'Tambah Produk'}</h3>
       <button ${A(V.closeProdForm)} title="tutup" style="width:32px;height:32px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:14px;">
@@ -2396,15 +2406,19 @@ function prodFormHtml(V){
         <div>${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
       </div>
       <div style="font-size:12px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:9px 12px;line-height:1.4;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      ${V.prodFormIsEdit
+        // Stok & cabang tidak ditampilkan saat edit: server mengabaikannya, jadi
+        // menampilkannya cuma memancing admin mengubah angka yang tidak akan tersimpan.
+        ? `<div style="font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:9px 12px;line-height:1.45;">Stok &amp; cabang tidak diubah di sini. Stok hanya berubah lewat <strong style="color:var(--text2);">+ Stok</strong> di Manajemen Stok atau penjualan, supaya riwayat mutasinya tetap benar.</div>`
+        : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>${lbl('Cabang')}${customSelectHtml('pbranch', V.pBranch, V.prodBranchOptions, (v) => setState({ pBranch: v }), 'Pilih cabang...')}</div>
         <div>${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
-      </div>
+      </div>`}
       <div>${lbl('Kedaluwarsa')}${customMonthPickerHtml('pexp', V.pExp, (v) => setState({ pExp: v }), 'Pilih bulan...')}</div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px;">
       <button ${A(V.closeProdForm)} style="flex:none;width:95px;height:48px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.saveProd)} style="flex:1;height:48px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">SIMPAN PRODUK</button>
+      <button ${A(V.saveProd)} style="flex:1;height:48px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:14px;letter-spacing:.04em;cursor:pointer;white-space:nowrap;">${V.prodFormIsEdit ? 'SIMPAN PERUBAHAN' : 'SIMPAN PRODUK'}</button>
     </div>
   </div>`;
 }

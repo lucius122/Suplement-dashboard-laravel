@@ -36,6 +36,7 @@ Route::middleware('auth')->prefix('api')->group(function () {
 
     // Produk, Stok & Kategori Produk
     Route::post('/products', [ProductController::class, 'storeProduct']); // tambah produk (admin)
+    Route::patch('/products/{product}', [ProductController::class, 'updateProduct']); // edit master barang (admin)
     Route::post('/products/{product}/restock', [ProductController::class, 'restockProduct']);
     Route::get('/products/{product}/movements', [ProductController::class, 'productMovements']);
     Route::post('/categories', [ProductController::class, 'storeCategory']);

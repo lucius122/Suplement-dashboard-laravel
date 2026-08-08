@@ -12,6 +12,32 @@ use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
+    /**
+     * Master barang dikelompokkan per UKURAN/BERAT, bukan per rasa.
+     *
+     * Bagian yang bisa dicek mesin: ukuran selalu menyebut angka (2lb, 900gr,
+     * 60 tab, 1.3kg) atau satuan eceran tanpa angka (saset). Nama rasa —
+     * "Cokelat", "Vanila", "Unflavored" — tidak punya keduanya, jadi tertolak.
+     * Ini penjaga kasar, bukan kamus rasa: tujuannya mencegah satu produk
+     * dipecah jadi banyak master hanya karena beda rasa.
+     */
+    private function aturanVarian(): array
+    {
+        return ['nullable', 'string', 'max:60', function (string $attribute, mixed $value, \Closure $fail) {
+            $v = mb_strtolower(trim((string) $value));
+            if ($v === '' || $v === '-') {
+                return; // kosong = boleh, nanti diisi '-'
+            }
+            if (preg_match('/\d/', $v)) {
+                return; // menyebut angka → ukuran/berat
+            }
+            if (in_array($v, ['saset', 'sachet', 'renceng', 'botol', 'pcs'], true)) {
+                return; // satuan eceran yang wajar tanpa angka
+            }
+            $fail('Varian harus menyatakan ukuran/berat (mis. 2lb, 900gr, 60 tab, saset) — bukan rasa. Rasa tidak dipisah jadi master barang sendiri.');
+        }];
+    }
+
     public function storeProduct(Request $request)
     {
         // Endpoint ini dipakai oleh KASIR (tambah produk dari layar kasir)
@@ -23,7 +49,7 @@ class ProductController extends Controller
 
         $data = $request->validate([
             'name'     => ['required', 'string', 'max:120'],
-            'varian'   => ['nullable', 'string', 'max:60'],
+            'varian'   => $this->aturanVarian(),
             'harga'    => ['required', 'integer', 'min:0'],
             'modal'    => ['nullable', 'integer', 'min:0'],
             'stok'     => ['nullable', 'integer', 'min:0'],
@@ -60,7 +86,7 @@ class ProductController extends Controller
             'kategori'  => $data['kategori'],
             'stok'      => (int) ($data['stok'] ?? 0),
             'branch_id' => $branchId,
-            'exp'       => $data['exp'] ?: null,
+            'exp'       => ($data['exp'] ?? null) ?: null,
             'photo'     => $photo,
             'custom'    => true,
         ]);
@@ -70,6 +96,37 @@ class ProductController extends Controller
         }
 
         return response()->json(['ok' => true, 'id' => $product->id]);
+    }
+
+    public function updateProduct(Request $request, Product $product)
+    {
+        // Edit master barang — admin saja.
+        // 'stok' sengaja TIDAK bisa diedit di sini: setiap perubahan stok wajib
+        // lewat restock/penjualan supaya track record mutasi tetap utuh. Kalau
+        // stok boleh ditimpa lewat form, riwayatnya langsung bohong.
+        // 'branch' juga tidak: memindah produk antar cabang akan memutus kaitan
+        // mutasi stok & item transaksi lama yang menempel di cabang asal.
+        $this->assertAdmin($request);
+
+        $data = $request->validate([
+            'name'     => ['required', 'string', 'max:120'],
+            'varian'   => $this->aturanVarian(),
+            'harga'    => ['required', 'integer', 'min:0'],
+            'modal'    => ['nullable', 'integer', 'min:0'],
+            'kategori' => ['required', 'string', 'max:40', Rule::exists('categories', 'name')],
+            'exp'      => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
+        ]);
+
+        $product->update([
+            'name'     => trim($data['name']),
+            'varian'   => trim($data['varian'] ?? '') ?: '-',
+            'harga'    => (int) $data['harga'],
+            'modal'    => (int) ($data['modal'] ?? 0),
+            'kategori' => $data['kategori'],
+            'exp'      => ($data['exp'] ?? null) ?: null,
+        ]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function restockProduct(Request $request, Product $product)
