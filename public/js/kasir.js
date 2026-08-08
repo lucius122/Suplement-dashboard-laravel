@@ -9,7 +9,6 @@
     return;
   }
 
-  var _CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
   /* ================================================================
    * HTML MICRO-HELPERS (sama persis dengan pola app.js / kasir lama)
@@ -37,7 +36,7 @@
   /* ================================================================
    * DATA HELPERS
    * ================================================================ */
-  // Produk cabang kasir yang masih ada stok (untuk katalog)
+  // Produk cabang kasir yang masih ada stok
   function _myProds() {
     var br = (SS.USER || {}).branch || '';
     return SS.DB.products.filter(function(p){ return p.cabang === br && p.stok > 0; });
@@ -520,10 +519,6 @@
     var cols  = isDesktop ? '160px' : '148px';
     var chips = cats.map(function(c){ return _chip(cat===c, c, function(){ SS.setState({k_cat:c}); }); }).join('');
 
-    // Shortcut: 1 item di cart, harga tidak berubah
-    var cart         = _cart();
-    var showShortcut = cart.length === 1 && cart[0].hargaJual === cart[0].harga;
-
     var grid = prods.length === 0
       ? '<div style="text-align:center;padding:60px 20px;color:var(--dim2);">'
           +'<div style="font-size:42px;margin-bottom:14px;">&#128230;</div>'
@@ -554,21 +549,6 @@
       +'</div>'
       // Grid produk
       +'<div class="scrl" style="flex:1;overflow-y:auto;padding:10px 12px 16px;">'+grid+'</div>'
-      // Shortcut Lanjut Pembayaran (muncul saat 1 item di cart, harga normal)
-      +(showShortcut
-        ? '<div style="flex:none;padding:8px 14px 12px;border-top:1px solid var(--divider);background:var(--panel);">'
-            +'<div style="font-size:11.5px;color:var(--muted);text-align:center;margin-bottom:7px;">'
-              +'1 produk di keranjang &mdash; harga normal'
-            +'</div>'
-            +'<button '+SS.A(function(){ SS.setState({k_panel:'pay'}); })+' class="fx-press" '
-              +'style="width:100%;height:44px;border-radius:12px;border:none;'
-              +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
-              +'font-family:\'Saira\',sans-serif;font-weight:800;font-size:13px;cursor:pointer;'
-              +'box-shadow:0 8px 20px -8px rgba(212,175,55,.5);">'
-              +'Lanjut Pembayaran &#8594;</button>'
-          +'</div>'
-        : ''
-      )
     +'</div>';
   }
 
@@ -605,7 +585,6 @@
    * ================================================================ */
   function _cartHtml() {
     var cart  = _cart(), total = _total(), empty = cart.length === 0;
-    var showShortcut = cart.length === 1 && cart[0].hargaJual === cart[0].harga;
 
     return '<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
       // Header cart
@@ -640,7 +619,7 @@
               +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
               +'font-family:\'Saira\',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.04em;'
               +'cursor:pointer;box-shadow:0 8px 20px -8px rgba(212,175,55,.5);">'
-              +(showShortcut?'Lanjut Pembayaran &#8594;':'Lanjut ke Pembayaran &#8594;')
+              +'Lanjut Pembayaran &#8594;'
             +'</button>'
           +'</div>'
         : ''
@@ -919,8 +898,6 @@
   /* ================================================================
    * EVENTS
    * ================================================================ */
-  document.addEventListener('keydown', function(e) {
-  });
   document.addEventListener('keydown', function(e) {
     if (e.key==='Enter' && e.target && e.target.id==='k-search') e.preventDefault();
   });
