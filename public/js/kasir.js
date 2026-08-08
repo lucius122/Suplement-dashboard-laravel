@@ -9,7 +9,6 @@
     return;
   }
 
-  var _CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
 
   /* ================================================================
    * HTML MICRO-HELPERS (sama persis dengan pola app.js / kasir lama)
@@ -37,7 +36,7 @@
   /* ================================================================
    * DATA HELPERS
    * ================================================================ */
-  // Produk cabang kasir yang masih ada stok (untuk katalog & scan)
+  // Produk cabang kasir yang masih ada stok
   function _myProds() {
     var br = (SS.USER || {}).branch || '';
     return SS.DB.products.filter(function(p){ return p.cabang === br && p.stok > 0; });
@@ -121,28 +120,6 @@
       k_editIdx: null, k_editType: 'normal',
       k_editCustom: '', k_editNote: '', k_editResellerPromoId: null,
     });
-  }
-
-  /* ================================================================
-   * SCAN BARCODE — hanya mode keluar (masuk ke keranjang)
-   * Mode "masuk" (restock) sudah dipindah ke Dashboard Admin.
-   * ================================================================ */
-  document.addEventListener('k-scan-result', function(e) {
-    var code = e.detail.code, mode = e.detail.mode;
-    if (mode === 'out') {
-      var p = _myProds().find(function(x){ return x.barcode === code; });
-      if (!p) { SS.flash('Barcode '+code+' tidak ditemukan di cabang ini'); return; }
-      _addToCart(p);
-      SS.flash('\u2713 '+p.name+' masuk keranjang');
-    }
-  });
-
-  function _handleManualScan() {
-    var code = (SS.S.k_scanManual || '').trim();
-    var mode = SS.S.k_scanMode;
-    if (!code || !mode) return;
-    SS.setState({ k_scanManual: '' });
-    document.dispatchEvent(new CustomEvent('k-scan-result', { detail: { code: code, mode: mode } }));
   }
 
   /* ================================================================
@@ -449,114 +426,6 @@
   }
 
   /* ================================================================
-   * MODAL: SCAN KAMERA (hanya mode keluar)
-   * ================================================================ */
-  function _scanModalHtml() {
-    var mc  = 'var(--ok,#50c864)', mb = 'rgba(80,200,100,.08)', mbd = 'rgba(80,200,100,.3)';
-    var scanMsg = SS.S.k_scanMsg || '';
-    var devices = SS.S.k_scanDevices || [], devId = SS.S.k_scanDeviceId;
-    var manual  = SS.S.k_scanManual || '';
-    var cnt     = _count();
-
-    var camArea = scanMsg
-      ? '<div style="position:relative;z-index:2;max-width:300px;text-align:center;'
-          +'background:var(--surface);border:1px solid var(--border);border-radius:14px;'
-          +'padding:16px;font-size:13px;color:var(--text2);line-height:1.55;">'
-          +SS.esc(scanMsg)+'</div>'
-      : '<div style="position:relative;z-index:2;width:200px;height:200px;border-radius:16px;border:2px solid '+mc+';">'
-          +'<i style="position:absolute;left:5%;right:5%;height:2px;top:50%;background:'+mc
-            +';box-shadow:0 0 10px '+mc+';animation:ssScan 1.8s ease-in-out infinite alternate;"></i>'
-          +'<span style="position:absolute;top:7px;left:7px;width:20px;height:20px;border-top:3px solid '+mc
-            +';border-left:3px solid '+mc+';border-radius:5px 0 0 0;"></span>'
-          +'<span style="position:absolute;top:7px;right:7px;width:20px;height:20px;border-top:3px solid '+mc
-            +';border-right:3px solid '+mc+';border-radius:0 5px 0 0;"></span>'
-          +'<span style="position:absolute;bottom:7px;left:7px;width:20px;height:20px;border-bottom:3px solid '+mc
-            +';border-left:3px solid '+mc+';border-radius:0 0 0 5px;"></span>'
-          +'<span style="position:absolute;bottom:7px;right:7px;width:20px;height:20px;border-bottom:3px solid '+mc
-            +';border-right:3px solid '+mc+';border-radius:0 0 5px 0;"></span>'
-        +'</div>'
-        +'<div style="position:absolute;bottom:12px;left:0;right:0;z-index:2;text-align:center;'
-          +'font-size:12.5px;color:rgba(255,255,255,.8);text-shadow:0 1px 6px rgba(0,0,0,.8);">'
-          +'Arahkan kamera ke barcode produk</div>';
-
-    var devSel = devices.length > 1
-      ? '<select '+SS.I(function(e){ SS.changeScanDeviceKasir(e.target.value); })
-          +' style="height:34px;max-width:130px;border-radius:9px;border:1px solid var(--border);'
-          +'background:var(--input);color:var(--text);font-size:11px;padding:0 7px;outline:none;">'
-          +devices.map(function(d,i){
-            return '<option value="'+SS.esc(d.deviceId)+'"'
-              +(d.deviceId===devId?' selected':'')+'>'
-              +SS.esc(d.label||'Kamera '+(i+1))+'</option>';
-          }).join('')
-          +'</select>'
-      : '';
-
-    var footer = '<div style="display:flex;gap:8px;margin-top:12px;">'
-        +'<div style="flex:1;height:44px;border-radius:11px;background:'+mb+';border:1px solid '+mbd
-          +';display:flex;align-items:center;justify-content:center;">'
-          +'<span style="font-size:13px;font-weight:700;color:'+mc+';">'
-            +(cnt>0?cnt+' item di keranjang':'Keranjang kosong')
-          +'</span></div>'
-        +'<button '+SS.A(function(){ SS.stopScanKasir(); SS.setState({k_panel:'cart'}); })
-          +' style="flex:none;height:44px;padding:0 16px;border-radius:11px;'
-          +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
-          +'border:none;font-weight:800;font-size:12.5px;cursor:pointer;">Selesai &rsaquo;</button>'
-      +'</div>';
-
-    return '<div '+SS.A(function(){ SS.stopScanKasir(); })
-        +' style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;"></div>'
-      +'<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:201;'
-        +'width:min(460px,calc(100vw - 24px));background:var(--panel);border:1px solid var(--border);'
-        +'border-radius:22px;overflow:hidden;box-shadow:0 30px 80px -15px rgba(0,0,0,.85);">'
-        // Header
-        +'<div style="padding:14px 18px;display:flex;align-items:center;'
-          +'justify-content:space-between;gap:10px;border-bottom:1px solid var(--divider);">'
-          +'<div>'
-            +'<div style="font-family:Saira,sans-serif;font-weight:800;font-size:16px;">Scan Barcode</div>'
-            +'<div style="font-size:11.5px;color:var(--muted);margin-top:2px;max-width:280px;line-height:1.4;">'
-              +'Scan barcode produk untuk menambahkannya ke keranjang.'
-            +'</div>'
-          +'</div>'
-          +'<div style="display:flex;align-items:center;gap:7px;flex:none;">'+devSel
-            +'<button '+SS.A(function(){ SS.stopScanKasir(); })
-              +' style="background:var(--surface2);border:1px solid var(--border);color:var(--text);'
-              +'width:36px;height:36px;border-radius:10px;cursor:pointer;font-size:19px;line-height:1;">'
-              +'&times;</button>'
-          +'</div>'
-        +'</div>'
-        // Mode badge
-        +'<div style="margin:12px 18px 0;padding:8px 12px;background:'+mb+';border:1px solid '+mbd
-          +';border-radius:10px;display:flex;align-items:center;gap:8px;">'
-          +'<div style="width:8px;height:8px;border-radius:50%;background:'+mc
-            +';flex:none;box-shadow:0 0 6px '+mc+';"></div>'
-          +'<span style="font-size:12px;font-weight:600;color:'+mc+';">Mode Keluar: produk masuk keranjang otomatis</span>'
-        +'</div>'
-        // Kamera
-        +'<div style="height:270px;position:relative;display:flex;align-items:center;justify-content:center;'
-          +'background:radial-gradient(circle at 50% 45%,#1e1e28,var(--bg));overflow:hidden;margin:12px 18px;border-radius:14px;">'
-          +'<video id="k-scan-video" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:14px;"></video>'
-          +camArea
-        +'</div>'
-        // Manual input
-        +'<div style="padding:4px 18px 18px;">'
-          +_lbl('Atau ketik nomor barcode manual')
-          +'<div style="display:flex;gap:8px;margin-top:6px;">'
-            +'<input id="k-scan-manual" value="'+SS.esc(manual)+'" '
-              +SS.I(function(e){ SS.setState({k_scanManual:e.target.value}); })
-              +' inputmode="numeric" placeholder="cnt. 8991234500017" '
-              +'style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);'
-              +'background:var(--input);color:var(--text);font-size:14px;letter-spacing:.06em;padding:0 14px;outline:none;">'
-            +'<button '+SS.A(_handleManualScan)
-              +' style="flex:none;height:46px;padding:0 16px;border-radius:12px;border:none;'
-              +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
-              +'font-weight:800;font-size:12.5px;cursor:pointer;">GUNAKAN</button>'
-          +'</div>'
-          +footer
-        +'</div>'
-      +'</div>';
-  }
-
-  /* ================================================================
    * MODAL: EDIT HARGA PER ITEM
    * ================================================================ */
   function _editPriceModalHtml() {
@@ -707,10 +576,6 @@
     var cols  = isDesktop ? '160px' : '148px';
     var chips = cats.map(function(c){ return _chip(cat===c, c, function(){ SS.setState({k_cat:c}); }); }).join('');
 
-    // Shortcut: 1 item di cart, harga tidak berubah
-    var cart         = _cart();
-    var showShortcut = cart.length === 1 && cart[0].hargaJual === cart[0].harga;
-
     var grid = prods.length === 0
       ? '<div style="text-align:center;padding:60px 20px;color:var(--dim2);">'
           +'<div style="font-size:42px;margin-bottom:14px;">&#128230;</div>'
@@ -741,21 +606,6 @@
       +'</div>'
       // Grid produk
       +'<div class="scrl" style="flex:1;overflow-y:auto;padding:10px 12px 16px;">'+grid+'</div>'
-      // Shortcut Lanjut Pembayaran (muncul saat 1 item di cart, harga normal)
-      +(showShortcut
-        ? '<div style="flex:none;padding:8px 14px 12px;border-top:1px solid var(--divider);background:var(--panel);">'
-            +'<div style="font-size:11.5px;color:var(--muted);text-align:center;margin-bottom:7px;">'
-              +'1 produk di keranjang &mdash; harga normal'
-            +'</div>'
-            +'<button '+SS.A(function(){ SS.setState({k_panel:'pay'}); })+' class="fx-press" '
-              +'style="width:100%;height:44px;border-radius:12px;border:none;'
-              +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
-              +'font-family:\'Saira\',sans-serif;font-weight:800;font-size:13px;cursor:pointer;'
-              +'box-shadow:0 8px 20px -8px rgba(212,175,55,.5);">'
-              +'Lanjut Pembayaran &#8594;</button>'
-          +'</div>'
-        : ''
-      )
     +'</div>';
   }
 
@@ -792,7 +642,6 @@
    * ================================================================ */
   function _cartHtml() {
     var cart  = _cart(), total = _total(), empty = cart.length === 0;
-    var showShortcut = cart.length === 1 && cart[0].hargaJual === cart[0].harga;
 
     return '<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
       // Header cart
@@ -827,7 +676,7 @@
               +'background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;'
               +'font-family:\'Saira\',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.04em;'
               +'cursor:pointer;box-shadow:0 8px 20px -8px rgba(212,175,55,.5);">'
-              +(showShortcut?'Lanjut Pembayaran &#8594;':'Lanjut ke Pembayaran &#8594;')
+              +'Lanjut Pembayaran &#8594;'
             +'</button>'
           +'</div>'
         : ''
@@ -1016,9 +865,6 @@
    * ================================================================ */
   function _headerHtml(V) {
     var count = _count();
-    var icoScan = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none">'
-      +'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M6 12h12" '
-      +'stroke="var(--ok,#50c864)" stroke-width="2" stroke-linecap="round"></path></svg>';
 
     return '<div style="flex:none;height:54px;border-bottom:1px solid var(--divider);'
       +'display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:var(--panel);gap:8px;">'
@@ -1037,14 +883,6 @@
           ? '<div style="background:var(--gold);color:#161208;border-radius:20px;padding:2px 9px;'
               +'font-family:\'Saira\',sans-serif;font-weight:800;font-size:12px;">'+count+'</div>'
           : '')
-        // Tombol Scan Barcode (hanya keluar)
-        +'<button '+SS.A(function(){ SS.startScanKasir('out'); })
-          +' title="Scan barcode produk ke keranjang" '
-          +'style="height:34px;padding:0 10px;border-radius:9px;background:rgba(80,200,100,.08);'
-          +'border:1px solid rgba(80,200,100,.35);color:var(--ok,#50c864);font-size:11.5px;font-weight:700;'
-          +'cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;">'
-          +icoScan+'<span>Scan</span>'
-        +'</button>'
         // Tombol Mode (hanya admin)
         +(V.isAdmin
           ? '<button '+SS.A(V.goModeScreen)
@@ -1070,10 +908,8 @@
   SS.registerCashier(function(V) {
     var panel      = SS.S.k_panel || 'catalog';
     var isDesktop  = V.isDesktop;
-    var scanMode   = SS.S.k_scanMode;
     var editIdx    = SS.S.k_editIdx;
 
-    var scanModal  = scanMode ? _scanModalHtml() : '';
     var editModal  = (editIdx !== null && editIdx !== undefined) ? _editPriceModalHtml() : '';
 
     // Layout Desktop: split-view katalog kiri + cart/pay kanan
@@ -1086,7 +922,7 @@
             +(panel==='pay' ? _payHtml() : _cartHtml())
           +'</div>'
         +'</div>'
-      +'</div>'+scanModal+editModal;
+      +'</div>'+editModal;
     }
 
     // Layout Mobile: tabs
@@ -1113,15 +949,12 @@
       +'<div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;">'
         +(panel==='catalog' ? _catalogHtml(false) : panel==='cart' ? _cartHtml() : _payHtml())
       +'</div>'
-    +'</div>'+scanModal+editModal;
+    +'</div>'+editModal;
   });
 
   /* ================================================================
    * EVENTS
    * ================================================================ */
-  document.addEventListener('keydown', function(e) {
-    if (e.key==='Enter' && e.target && e.target.id==='k-scan-manual') { e.preventDefault(); _handleManualScan(); }
-  });
   document.addEventListener('keydown', function(e) {
     if (e.key==='Enter' && e.target && e.target.id==='k-search') e.preventDefault();
   });
