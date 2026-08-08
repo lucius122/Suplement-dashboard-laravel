@@ -104,14 +104,14 @@ class MasterBarangTest extends TestCase
 
         $this->actingAs($admin)->patchJson('/api/products/'.$p->id, [
             'name' => 'Whey Isolate', 'varian' => '5lb', 'harga' => 1450000,
-            'modal' => 1180000, 'kategori' => 'Protein', 'exp' => '2027-03',
+            'modal' => 1180000, 'kategori' => 'Protein',
         ])->assertOk();
 
         $p->refresh();
         $this->assertSame('Whey Isolate', $p->name);
         $this->assertSame('5lb', $p->varian);
         $this->assertSame(1450000, $p->harga);
-        $this->assertSame('2027-03', $p->exp);
+        $this->assertSame(1180000, $p->modal);
     }
 
     public function test_edit_produk_tidak_mengubah_stok_maupun_cabang(): void

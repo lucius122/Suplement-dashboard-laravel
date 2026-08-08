@@ -50,30 +50,29 @@ class DatabaseSeeder extends Seeder
             ]);
         }
 
-        // ---- products (exp relatif dari sekarang supaya badge kedaluwarsa selalu hidup) ----
-        $exp = fn (?int $months) => $months === null ? null : now()->addMonths($months)->format('Y-m');
+        // ---- products ----
         // Master barang dikelompokkan per UKURAN/BERAT, bukan per rasa: nama = produk
         // dasar, varian = berat/ukuran. Rasa sengaja tidak dijadikan master terpisah
         // supaya input stok cepat (mis. Whey Gold Standard 2lb cukup satu baris).
+        // Aturan ini dijaga ProductController::aturanVarian(), bukan cuma konvensi.
         $products = [
-            ['Whey Gold Standard',        '2lb',    685000, 540000, 'Protein',   9,    16, $pleburan],
-            ['Whey Gold Standard',        '5lb',    1450000, 1180000, 'Protein',  2,    4,  $pleburan],
-            ['Creatine Monohydrate',      '300g',   215000, 150000, 'Performa',  12,   20, $pleburan],
-            ['BCAA 2:1:1',                '400g',   245000, 175000, 'Recovery',  1,    7,  $pleburan],
-            ['Mass Gainer',               '5lb',    540000, 430000, 'Protein',   3,    0,  $pleburan],
-            ['Pre-Workout C4',            '60 srv', 320000, 230000, 'Performa',  4,    9,  $pleburan],
-            ['Fish Oil Omega-3',          '200 kaps', 145000, 95000, 'Kesehatan', 7,   25, $pleburan],
-            ['Shaker Bottle',             '600ml',   55000,  30000, 'Aksesoris', null, 30, $pleburan],
-            ['Multivitamin Daily',        '60 tab', 110000,  70000, 'Kesehatan', 6,    3,  $surakarta],
-            ['Whey Isolate',              '2lb',    760000, 600000, 'Protein',   8,    6,  $surakarta],
-            ['L-Glutamine',               '300g',   190000, 130000, 'Recovery',  2,    2,  $surakarta],
-            ['Vitamin C 1000mg',          '60 tab',  65000,  38000, 'Kesehatan', 1,    14, $surakarta],
+            ['Whey Gold Standard',        '2lb',    685000, 540000, 'Protein',   16, $pleburan],
+            ['Whey Gold Standard',        '5lb',    1450000, 1180000, 'Protein',  4,  $pleburan],
+            ['Creatine Monohydrate',      '300g',   215000, 150000, 'Performa',  20, $pleburan],
+            ['BCAA 2:1:1',                '400g',   245000, 175000, 'Recovery',  7,  $pleburan],
+            ['Mass Gainer',               '5lb',    540000, 430000, 'Protein',   0,  $pleburan],
+            ['Pre-Workout C4',            '60 srv', 320000, 230000, 'Performa',  9,  $pleburan],
+            ['Fish Oil Omega-3',          '200 kaps', 145000, 95000, 'Kesehatan', 25, $pleburan],
+            ['Shaker Bottle',             '600ml',   55000,  30000, 'Aksesoris', 30, $pleburan],
+            ['Multivitamin Daily',        '60 tab', 110000,  70000, 'Kesehatan', 3,  $surakarta],
+            ['Whey Isolate',              '2lb',    760000, 600000, 'Protein',   6,  $surakarta],
+            ['L-Glutamine',               '300g',   190000, 130000, 'Recovery',  2,  $surakarta],
+            ['Vitamin C 1000mg',          '60 tab',  65000,  38000, 'Kesehatan', 14, $surakarta],
         ];
         foreach ($products as $i => $p) {
             Product::create([
                 'name' => $p[0], 'varian' => $p[1], 'harga' => $p[2], 'modal' => $p[3],
-                'kategori' => $p[4], 'exp' => $exp($p[5]),
-                'stok' => $p[6], 'branch_id' => $p[7]->id,
+                'kategori' => $p[4], 'stok' => $p[5], 'branch_id' => $p[6]->id,
                 'photo' => '/images/pr'.($i + 1).'.png',
             ]);
         }

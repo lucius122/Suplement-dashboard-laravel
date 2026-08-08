@@ -23,7 +23,7 @@ class DashboardController extends Controller
             'products' => Product::with('branch')->orderBy('id')->get()->map(fn ($p) => [
                 'id' => $p->id, 'name' => $p->name, 'varian' => $p->varian,
                 'harga' => $p->harga, 'modal' => $p->modal, 'kategori' => $p->kategori,
-                'exp' => $p->exp, 'stok' => $p->stok,
+                'stok' => $p->stok,
                 'cabang' => $p->branch->name, 'photo' => $p->photo, 'custom' => $p->custom,
             ]),
             'receivables' => Receivable::with('branch')->orderByDesc('id')->get()->map(fn ($r) => [

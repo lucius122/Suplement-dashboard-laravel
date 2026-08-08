@@ -86,7 +86,7 @@ let S = {
   userForm: false, prodForm: false,
   period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
-  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pExp:'', pBranch:'', editProdId: null, // form produk (admin); editProdId null = mode tambah
+  pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBranch:'', editProdId: null, // form produk (admin); editProdId null = mode tambah
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   histId:null, histName:'', histRows:null,                  // modal riwayat stok (histId null = tutup, histRows null = masih memuat)
@@ -100,7 +100,7 @@ let S = {
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '', editBranchId: null,
   // state untuk custom form controls (Select, DatePicker, MonthPicker)
-  activeDD: null, activeDP: null, activeMP: null,
+  activeDD: null, activeDP: null,
 };
 
 const TODAY = new Date();
@@ -128,7 +128,6 @@ function ic(name, color, size){
     shopee:['M5 8h14l-1 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 8Z','M9 8V6a3 3 0 0 1 6 0v2'],
     biaya:['M8 12h8'],
     refresh:['M21 12a9 9 0 1 1-2.6-6.4','M21 3v4h-4'],
-    warn:['M12 9v4M12 17h.01','M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z'],
     settings:['M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z'],
   };
   const circles = { tempo:[12,12,9], settings:[12,12,3], biaya:[12,12,9] };
@@ -212,7 +211,7 @@ async function saveProduct(){
   // restock/penjualan (supaya track record jujur), cabang tidak dipindah.
   const body = {
     name: nama, varian: S.pVar.trim() || '-', harga,
-    modal: parseInt(S.pModal)||0, kategori: S.pKat, exp: S.pExp || null,
+    modal: parseInt(S.pModal)||0, kategori: S.pKat,
   };
   if(!edit){ body.stok = parseInt(S.pStok)||0; body.branch = S.pBranch; }
   try {
@@ -736,16 +735,9 @@ function renderVals(){
 
   const produkRows = DB.products.filter(p=>branch==='Semua'||p.cabang===branch).map(p=>{
     const margin=((p.harga-p.modal)/p.harga*100).toFixed(0)+'%';
-    let expB=null;
-    if(p.exp && p.exp!=='-'){ const d=Math.round((new Date(p.exp+'-01')-TODAY)/86400000);
-      if(d<=30) expB={t:'Kedaluwarsa <30 hari',c:'var(--danger)',bg:'var(--dangertint)'};
-      else if(d<=60) expB={t:'Kedaluwarsa <60 hari',c:'var(--warn)',bg:'var(--warntint)'};
-      else if(d<=90) expB={t:'Kedaluwarsa <90 hari',c:'var(--gold)',bg:'var(--goldtint)'}; }
     return { name:p.name, varian:p.varian, kategori:p.kategori, hargaText:rp(p.harga), modalText:rp(p.modal), margin,
-      hasExp:!!expB, expText:expB?expB.t:'', expColor:expB?expB.c:'var(--muted)', expBg:expB?expB.bg:'transparent',
-      warnIcon:ic('warn', expB?expB.c:'var(--muted)', 13),
       onEdit:()=>setState({ prodForm:true, editProdId:p.id, pName:p.name, pVar:p.varian==='-'?'':p.varian,
-        pKat:p.kategori, pHarga:String(p.harga), pModal:String(p.modal), pStok:'', pExp:p.exp||'', pBranch:p.cabang }) };
+        pKat:p.kategori, pHarga:String(p.harga), pModal:String(p.modal), pStok:'', pBranch:p.cabang }) };
   });
 
   const curYear = new Date().getFullYear();
@@ -1035,7 +1027,7 @@ function renderVals(){
     kCatOptions: DB.categories.map(c=>c.name),
     prodBranchOptions: allBranches(),
     openProdForm:()=>setState({prodForm:true, editProdId:null, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
-      pHarga:'', pModal:'', pStok:'', pExp:'',
+      pHarga:'', pModal:'', pStok:'',
       pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
     closeProdForm:()=>setState({prodForm:false, editProdId:null}),
     prodFormIsEdit: S.editProdId !== null,
@@ -1045,7 +1037,6 @@ function renderVals(){
     pHargaText: S.pHarga, onPHarga:(e)=>setState({pHarga:(e.target.value||'').replace(/\D/g,'')}),
     pModalText: S.pModal, onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
     pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
-    pExp:S.pExp, onPExp:(e)=>setState({pExp:e.target.value}),
     pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
     saveProd:()=>saveProduct(),
     salesDate:S.salesDate,
@@ -1161,8 +1152,7 @@ function openCustomDD(id, value, options, onChange, placeholder, styleHeight = 4
     activeDD: (S.activeDD && S.activeDD.id === id) ? null : {
       id, value: String(value||''), options: normOpts, onChange, placeholder: placeholder || 'Pilih...', search: '', activeIdx: Math.max(0, curIdx), styleHeight
     },
-    activeDP: null,
-    activeMP: null
+    activeDP: null
   });
 }
 
@@ -1180,8 +1170,7 @@ function openCustomDP(id, value, onChange, placeholder = 'Pilih tanggal...', sty
     activeDP: (S.activeDP && S.activeDP.id === id) ? null : {
       id, value: value || '', onChange, placeholder, viewYear: vDate.getFullYear(), viewMonth: vDate.getMonth(), styleHeight
     },
-    activeDD: null,
-    activeMP: null
+    activeDD: null
   });
 }
 
@@ -1201,47 +1190,19 @@ function navCustomDPMonth(delta) {
   setState({ activeDP: { ...S.activeDP, viewMonth: m, viewYear: y } });
 }
 
-function openCustomMP(id, value, onChange, placeholder = 'Pilih bulan...', styleHeight = 48) {
-  let y = new Date().getFullYear();
-  if (value && value.includes('-')) {
-    const parts = value.split('-');
-    const parsedY = parseInt(parts[0]);
-    if (!isNaN(parsedY)) y = parsedY;
-  }
-  setState({
-    activeMP: (S.activeMP && S.activeMP.id === id) ? null : {
-      id, value: value || '', onChange, placeholder, viewYear: y, styleHeight
-    },
-    activeDD: null,
-    activeDP: null
-  });
-}
-
-function selectCustomMPMonth(monthStr) {
-  if (!S.activeMP) return;
-  const fn = S.activeMP.onChange;
-  setState({ activeMP: null });
-  if (typeof fn === 'function') fn(monthStr);
-}
-
-function navCustomMPYear(delta) {
-  if (!S.activeMP) return;
-  setState({ activeMP: { ...S.activeMP, viewYear: S.activeMP.viewYear + delta } });
-}
-
 function closeCustomPickers() {
-  if (S.activeDD || S.activeDP || S.activeMP) {
-    setState({ activeDD: null, activeDP: null, activeMP: null });
+  if (S.activeDD || S.activeDP) {
+    setState({ activeDD: null, activeDP: null });
   }
 }
 
 if (typeof window !== 'undefined' && !window._ss_pickers_bound) {
   window._ss_pickers_bound = true;
   document.addEventListener('mousedown', function(e) {
-    if (!S.activeDD && !S.activeDP && !S.activeMP) return;
+    if (!S.activeDD && !S.activeDP) return;
     const panel = document.getElementById('custom-portal-panel');
     if (panel && panel.contains(e.target)) return;
-    const activeObj = S.activeDD || S.activeDP || S.activeMP;
+    const activeObj = S.activeDD || S.activeDP;
     if (activeObj) {
       const trig = document.getElementById('custom-trig-' + activeObj.id);
       if (trig && trig.contains(e.target)) return;
@@ -1312,24 +1273,6 @@ function customDatePickerHtml(id, value, onChange, placeholder = 'Pilih tanggal.
   }
   
   return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomDP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
-    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dispText)}</span>
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:none;"><rect x="3" y="4" width="18" height="18" rx="2" stroke="#D4AF37" stroke-width="1.8"></rect><path d="M16 2v4M8 2v4M3 10h18" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round"></path></svg>
-  </button>`;
-}
-
-function customMonthPickerHtml(id, value, onChange, placeholder = 'Pilih bulan...', styleHeight = 48) {
-  const isOpen = S.activeMP && S.activeMP.id === id;
-  let dispText = placeholder;
-  if (value && value.includes('-')) {
-    const parts = value.split('-');
-    const y = parts[0];
-    const mIdx = parseInt(parts[1]) - 1;
-    if (!isNaN(mIdx) && FULL_MON[mIdx]) {
-      dispText = FULL_MON[mIdx] + ' ' + y;
-    }
-  }
-  
-  return `<button id="custom-trig-${id}" type="button" aria-haspopup="dialog" aria-expanded="${isOpen}" ${A(() => openCustomMP(id, value, onChange, placeholder, styleHeight))} style="width:100%;box-sizing:border-box;height:${styleHeight}px;padding:0 14px;border-radius:12px;background:var(--input);border:1px solid ${isOpen ? 'var(--gold)' : 'var(--border)'};color:${value ? 'var(--text)' : 'var(--muted)'};font-size:13.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;outline:none;font-family:'Hanken Grotesk',sans-serif;text-align:left;transition:border-color .15s ease;">
     <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(dispText)}</span>
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="flex:none;"><rect x="3" y="4" width="18" height="18" rx="2" stroke="#D4AF37" stroke-width="1.8"></rect><path d="M16 2v4M8 2v4M3 10h18" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round"></path></svg>
   </button>`;
@@ -1435,45 +1378,9 @@ function customDPPanelHtml(V) {
   </div>`;
 }
 
-function customMPPanelHtml(V) {
-  const mp = S.activeMP;
-  if (!mp) return '';
-  const y = mp.viewYear;
-  let curValStr = mp.value;
-  
-  let monthsHtml = FULL_MON.map((mName, idx) => {
-    const mStr = y + '-' + String(idx + 1).padStart(2, '0');
-    const isSelected = mStr === curValStr;
-    
-    let style = 'height:40px;border-radius:10px;border:none;font-size:12.5px;font-family:\'Hanken Grotesk\',sans-serif;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s ease;';
-    if (isSelected) {
-      style += 'background:#D4AF37;color:#0A0A0C;font-weight:800;box-shadow:0 0 10px rgba(212,175,55,0.4);';
-    } else {
-      style += 'background:rgba(255,255,255,0.03);color:var(--text);border:1px solid rgba(255,255,255,0.06);';
-    }
-    return `<button ${A(() => selectCustomMPMonth(mStr))} class="fx-hover" style="${style}">${mName}</button>`;
-  });
-
-  return `
-  <div id="custom-portal-panel" class="scrl" style="position:fixed;background:#141416;border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:16px;box-shadow:0 24px 60px rgba(0,0,0,0.85);color:#F4F3EE;font-family:'Hanken Grotesk',sans-serif;width:280px;box-sizing:border-box;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-      <button ${A(() => navCustomMPYear(-1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">‹</button>
-      <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:16px;color:#D4AF37;">${y}</span>
-      <button ${A(() => navCustomMPYear(1))} style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;">›</button>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
-      ${monthsHtml.join('')}
-    </div>
-    <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);text-align:right;">
-      <button ${A(() => closeCustomPickers())} style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
-    </div>
-  </div>`;
-}
-
 function customOverlayHtml(V) {
   if (S.activeDD) return customDDPanelHtml(V);
   if (S.activeDP) return customDPPanelHtml(V);
-  if (S.activeMP) return customMPPanelHtml(V);
   return '';
 }
 
@@ -1481,15 +1388,12 @@ window.SS = window.SS || {};
 Object.assign(window.SS, {
   customSelectHtml,
   customDatePickerHtml,
-  customMonthPickerHtml,
   customFormFieldHtml,
   openCustomDD,
   openCustomDP,
-  openCustomMP,
   closeCustomPickers,
   selectCustomDDOption,
-  selectCustomDPDate,
-  selectCustomMPMonth
+  selectCustomDPDate
 });
 
 /* ================= LOGIN ================= */
@@ -2017,7 +1921,6 @@ function secProdukHtml(V){
             <div><div style="font-size:10.5px;color:var(--muted);">Harga Jual</div><div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:var(--gold);">${p.hargaText}</div></div>
             <div><div style="font-size:10.5px;color:var(--muted);">Harga Modal</div><div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;color:var(--text2);">${p.modalText}</div></div>
           </div>
-          ${p.hasExp ? `<div style="margin-top:12px;font-size:11.5px;font-weight:600;padding:6px 10px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;color:${p.expColor};background:${p.expBg};">${p.warnIcon} ${p.expText}</div>` : ''}
         </div>`).join('')}
     </div>
   </div>`;
@@ -2414,7 +2317,6 @@ function prodFormHtml(V){
         <div>${lbl('Cabang')}${customSelectHtml('pbranch', V.pBranch, V.prodBranchOptions, (v) => setState({ pBranch: v }), 'Pilih cabang...')}</div>
         <div>${lbl('Stok Awal')}<input id="i-pstok" value="${esc(V.pStok)}" ${I(V.onPStok)} inputmode="numeric" placeholder="0" style="${inputStyle(48)}"></div>
       </div>`}
-      <div>${lbl('Kedaluwarsa')}${customMonthPickerHtml('pexp', V.pExp, (v) => setState({ pExp: v }), 'Pilih bulan...')}</div>
     </div>
     <div style="display:flex;gap:10px;margin-top:20px;">
       <button ${A(V.closeProdForm)} style="flex:none;width:95px;height:48px;border-radius:13px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
@@ -2704,7 +2606,7 @@ function render(){
   lastScreen = S.screen;
   prevOpen = openNow;
   // custom portal panel positioning & auto-flip
-  const activePicker = S.activeDD || S.activeDP || S.activeMP;
+  const activePicker = S.activeDD || S.activeDP;
   if (activePicker) {
     const trig = document.getElementById('custom-trig-' + activePicker.id);
     const panel = document.getElementById('custom-portal-panel');
@@ -2716,7 +2618,6 @@ function render(){
 
       let targetWidth = r.width;
       if (S.activeDP) targetWidth = Math.max(300, r.width);
-      else if (S.activeMP) targetWidth = Math.max(280, r.width);
       else if (S.activeDD) targetWidth = Math.max(160, r.width);
 
       let panelLeft = r.left;
