@@ -40,12 +40,11 @@ class ProductController extends Controller
 
     public function storeProduct(Request $request)
     {
-        // Endpoint ini dipakai oleh KASIR (tambah produk dari layar kasir)
-        // maupun ADMIN (tambah produk dari layar Produk & Harga).
-        // Kasir hanya bisa menambah produk ke cabangnya sendiri;
-        // Admin bisa memilih cabang tujuan via field 'branch'.
-        $user    = $request->user();
-        $isAdmin = $user->role === 'Admin';
+        // ADMIN SAJA. Input master barang & stok dipusatkan di dashboard admin
+        // supaya tidak terjadi double input / data tak cocok — kasir hanya boleh
+        // MELIHAT sisa stok. Dulu endpoint ini juga melayani layar kasir; aksesnya
+        // ditutup atas permintaan klien, dan tombolnya sudah dihapus dari kasir.js.
+        $this->assertAdmin($request);
 
         $data = $request->validate([
             'name'     => ['required', 'string', 'max:120'],
@@ -54,17 +53,11 @@ class ProductController extends Controller
             'modal'    => ['nullable', 'integer', 'min:0'],
             'stok'     => ['nullable', 'integer', 'min:0'],
             'kategori' => ['required', 'string', 'max:40', Rule::exists('categories', 'name')],
-            'branch'   => [$isAdmin ? 'required' : 'nullable', 'string', 'exists:branches,name'],
+            'branch'   => ['required', 'string', 'exists:branches,name'],
             'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
         ]);
 
-        // Tentukan branch: Admin bisa pilih, Kasir pakai branch akun sendiri
-        if ($isAdmin) {
-            $branchId = Branch::where('name', $data['branch'])->value('id');
-        } else {
-            abort_if(! $user->branch_id, 422, 'Akun ini belum dikaitkan ke cabang manapun.');
-            $branchId = $user->branch_id;
-        }
+        $branchId = Branch::where('name', $data['branch'])->value('id');
 
         // Proses upload foto jika ada
         $photo = null;
