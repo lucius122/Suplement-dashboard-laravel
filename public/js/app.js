@@ -87,6 +87,7 @@ let S = {
   period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
   pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBranch:'', editProdId: null, // form produk (admin); editProdId null = mode tambah
+  pPhoto: null, pPhotoPreview: null, // foto produk: File object & data-URL preview
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
   restockId:null, restockQty:'',                            // modal tambah stok (null = tutup)
   histId:null, histName:'', histRows:null,                  // modal riwayat stok (histId null = tutup, histRows null = masih memuat)
@@ -207,17 +208,37 @@ async function saveProduct(){
   if(!harga){ flash('Isi harga jual dulu'); return; }
   if(!edit && !S.pBranch){ flash('Pilih cabang dulu'); return; }
   const nama = S.pName.trim();
-  // Saat edit, stok & cabang TIDAK dikirim: stok hanya boleh berubah lewat
-  // restock/penjualan (supaya track record jujur), cabang tidak dipindah.
-  const body = {
-    name: nama, varian: S.pVar.trim() || '-', harga,
-    modal: parseInt(S.pModal)||0, kategori: S.pKat,
-  };
-  if(!edit){ body.stok = parseInt(S.pStok)||0; body.branch = S.pBranch; }
+
+  // Gunakan FormData supaya bisa upload file foto (multipart/form-data).
+  // Server membaca field biasa lewat $request->input() — kompatibel dengan FormData.
+  // Untuk PATCH Laravel butuh _method override karena browser tidak mendukung
+  // multipart PUT/PATCH secara native.
+  const fd = new FormData();
+  fd.append('name', nama);
+  fd.append('varian', S.pVar.trim() || '-');
+  fd.append('harga', harga);
+  fd.append('modal', parseInt(S.pModal)||0);
+  fd.append('kategori', S.pKat);
+  if(!edit){
+    fd.append('stok', parseInt(S.pStok)||0);
+    fd.append('branch', S.pBranch);
+  }
+  if(S.pPhoto) fd.append('photo', S.pPhoto);
+
+  const url    = edit ? '/api/products/'+S.editProdId : '/api/products';
+  const method = edit ? 'POST' : 'POST'; // selalu POST; edit memakai _method
+  if(edit) fd.append('_method', 'PATCH');
+
   try {
-    if(edit) await api('/api/products/'+S.editProdId, 'PATCH', body);
-    else     await api('/api/products', 'POST', body);
-    setState({ prodForm:false, editProdId:null });
+    const res = await fetch(url, {
+      method,
+      headers: { 'Accept':'application/json', 'X-CSRF-TOKEN': CSRF },
+      body: fd,
+    });
+    if(res.status === 401){ USER=null; setState({screen:'login',role:null}); throw new Error('Sesi berakhir.'); }
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.message || 'Terjadi kesalahan ('+res.status+')');
+    setState({ prodForm:false, editProdId:null, pPhoto:null, pPhotoPreview:null });
     await loadAll();
     flash('Produk "'+nama+'" '+(edit?'diperbarui':'ditambahkan'));
   } catch(e) { flash(e.message); }
@@ -737,7 +758,8 @@ function renderVals(){
     const margin=((p.harga-p.modal)/p.harga*100).toFixed(0)+'%';
     return { name:p.name, varian:p.varian, kategori:p.kategori, hargaText:rp(p.harga), modalText:rp(p.modal), margin,
       onEdit:()=>setState({ prodForm:true, editProdId:p.id, pName:p.name, pVar:p.varian==='-'?'':p.varian,
-        pKat:p.kategori, pHarga:String(p.harga), pModal:String(p.modal), pStok:'', pBranch:p.cabang }) };
+        pKat:p.kategori, pHarga:String(p.harga), pModal:String(p.modal), pStok:'', pBranch:p.cabang,
+        pPhoto:null, pPhotoPreview: p.photo || null }) }; // foto lama tampil sbg preview; pPhoto null = belum pilih file baru
   });
 
   const curYear = new Date().getFullYear();
@@ -1027,9 +1049,9 @@ function renderVals(){
     kCatOptions: DB.categories.map(c=>c.name),
     prodBranchOptions: allBranches(),
     openProdForm:()=>setState({prodForm:true, editProdId:null, pName:'', pVar:'', pKat:(DB.categories[0]||{}).name||'',
-      pHarga:'', pModal:'', pStok:'',
+      pHarga:'', pModal:'', pStok:'', pPhoto:null, pPhotoPreview:null,
       pBranch: branch==='Semua' ? (allBranches()[0]||'') : branch }),
-    closeProdForm:()=>setState({prodForm:false, editProdId:null}),
+    closeProdForm:()=>setState({prodForm:false, editProdId:null, pPhoto:null, pPhotoPreview:null}),
     prodFormIsEdit: S.editProdId !== null,
     pName:S.pName, onPName:(e)=>setState({pName:e.target.value}),
     pVar:S.pVar, onPVar:(e)=>setState({pVar:e.target.value}),
@@ -1038,6 +1060,17 @@ function renderVals(){
     pModalText: S.pModal, onPModal:(e)=>setState({pModal:(e.target.value||'').replace(/\D/g,'')}),
     pStok:S.pStok, onPStok:(e)=>setState({pStok:(e.target.value||'').replace(/\D/g,'')}),
     pBranch:S.pBranch, onPBranch:(e)=>setState({pBranch:e.target.value}),
+    pPhotoPreview: S.pPhotoPreview,
+    pPhotoIsNew: !!S.pPhoto, // true = user pilih file baru; false = menampilkan foto lama dari server
+    onPickPhoto:(e)=>{
+      const file = e.target.files && e.target.files[0];
+      if(!file) return;
+      setState({ pPhoto: file });
+      const reader = new FileReader();
+      reader.onload = ev => setState({ pPhotoPreview: ev.target.result });
+      reader.readAsDataURL(file);
+    },
+    onRemovePhoto:()=>setState({ pPhoto:null, pPhotoPreview:null }),
     saveProd:()=>saveProduct(),
     salesDate:S.salesDate,
     salesDateLoading: !!S.salesDate && S.salesDateData === null,
@@ -2291,6 +2324,29 @@ function userFormHtml(V){
 function prodFormHtml(V){
   const pad = V.isMobile ? '20px 16px' : '26px';
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(560px, calc(100vw - 32px))';
+
+  // Zona upload foto — drag-and-drop + klik, dengan preview & tombol hapus
+  const photoZoneHtml = V.pPhotoPreview
+    ? `<div style="position:relative;border-radius:14px;overflow:hidden;border:2px solid var(--gold);height:160px;">
+        <img src="${esc(V.pPhotoPreview)}" alt="Preview" style="width:100%;height:100%;object-fit:cover;display:block;">
+        <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(to top,rgba(0,0,0,.55) 0%,transparent 55%);">
+          <div style="position:absolute;bottom:10px;left:12px;right:12px;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#fff;background:rgba(0,0,0,.45);border-radius:6px;padding:3px 8px;">${V.pPhotoIsNew ? '→ WebP saat simpan' : 'Foto saat ini'}</span>
+            <button data-rm-photo="1" style="width:30px;height:30px;border-radius:50%;background:rgba(220,50,50,.85);border:none;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;" title="${V.pPhotoIsNew ? 'Batal pilih foto' : 'Hapus foto'}"><span style="line-height:1;">×</span></button>
+          </div>
+        </div>
+      </div>`
+    : `<label for="i-pphoto" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+        border:2px dashed var(--border2);border-radius:14px;height:130px;cursor:pointer;
+        background:var(--surface2);transition:border-color .15s,background .15s;
+        text-align:center;padding:12px;
+        " onmouseover="this.style.borderColor='var(--gold)';this.style.background='var(--chip)';" onmouseout="this.style.borderColor='var(--border2)';this.style.background='var(--surface2)';">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><polyline points="17 8 12 3 7 8" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></polyline><line x1="12" y1="3" x2="12" y2="15" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"></line></svg>
+        <span style="font-size:13px;color:var(--text2);font-weight:600;">Klik atau seret foto ke sini</span>
+        <span style="font-size:11px;color:var(--muted);">JPG · PNG · WebP · maks 5MB → otomatis dikonversi ke <strong style="color:var(--gold);">WebP</strong></span>
+      </label>
+      <input id="i-pphoto" type="file" accept="image/jpeg,image/png,image/webp" style="display:none;">` ;
+
   return `
   <div ${A(V.closeProdForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
   <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:90dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:${pad};${V.popModal('prodForm')}box-shadow:0 30px 70px -15px rgba(0,0,0,.8);">
@@ -2309,6 +2365,10 @@ function prodFormHtml(V){
         <div>${lbl('Harga Modal')}<input id="i-pmodal" value="${esc(V.pModalText)}" ${I(V.onPModal)} placeholder="Rp" inputmode="numeric" style="${inputStyle(48)}"></div>
       </div>
       <div style="font-size:12px;color:var(--ok);background:var(--oktint);border-radius:10px;padding:9px 12px;line-height:1.4;">Margin akan dihitung otomatis dari harga jual &amp; modal.</div>
+      <div>
+        ${lbl('Foto Produk <span style="font-size:11px;font-weight:400;color:var(--muted);">(opsional)</span>')}
+        ${photoZoneHtml}
+      </div>
       ${V.prodFormIsEdit
         // Stok & cabang tidak ditampilkan saat edit: server mengabaikannya, jadi
         // menampilkannya cuma memancing admin mengubah angka yang tidak akan tersimpan.
@@ -2662,12 +2722,25 @@ function render(){
 
 /* ================= events ================= */
 root.addEventListener('click', e => {
+  // Hapus foto produk (tombol × di preview)
+  if(e.target.closest('[data-rm-photo]')){ e.stopPropagation(); setState({ pPhoto:null, pPhotoPreview:null }); return; }
   const t = e.target.closest('[data-a]');
   if(t && reg[+t.dataset.a]) reg[+t.dataset.a](e);
 });
 root.addEventListener('input', e => {
   const t = e.target.closest('[data-i]');
   if(t && reg[+t.dataset.i]) reg[+t.dataset.i]({ target: t });
+});
+// change event untuk file input foto produk (tidak ter-cover oleh handler 'input')
+root.addEventListener('change', e => {
+  if(e.target.id === 'i-pphoto'){
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    setState({ pPhoto: file });
+    const reader = new FileReader();
+    reader.onload = ev => setState({ pPhotoPreview: ev.target.result });
+    reader.readAsDataURL(file);
+  }
 });
 root.addEventListener('keydown', e => {
   if(e.key === 'Enter' && (e.target.id === 'i-uname' || e.target.id === 'i-pass')) login();

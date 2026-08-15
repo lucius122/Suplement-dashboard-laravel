@@ -555,7 +555,9 @@
   function _prodCard(p) {
     var inCart = _cart().find(function(i){ return i.id === p.id; });
     var low    = p.stok <= 5;
-    return '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;">'
+    return '<div '+SS.A(function(){ _addToCart(p); })+' class="fx-press" '
+      +'style="background:var(--surface);border:1px solid var(--border2);border-radius:14px;overflow:hidden;'
+      +'display:flex;flex-direction:column;cursor:pointer;user-select:none;">'
       +(p.photo
         ? '<img src="'+SS.esc(p.photo)+'" alt="'+SS.esc(p.name)+'" '
             +'style="width:100%;height:94px;object-fit:cover;display:block;" '
