@@ -105,15 +105,39 @@ class ProductController extends Controller
             'harga'    => ['required', 'integer', 'min:0'],
             'modal'    => ['nullable', 'integer', 'min:0'],
             'kategori' => ['required', 'string', 'max:40', Rule::exists('categories', 'name')],
+            'photo'    => ['nullable', 'file', 'mimes:jpeg,png,webp', 'max:5120'],
         ]);
 
-        $product->update([
+        $updates = [
             'name'     => trim($data['name']),
             'varian'   => trim($data['varian'] ?? '') ?: '-',
             'harga'    => (int) $data['harga'],
             'modal'    => (int) ($data['modal'] ?? 0),
             'kategori' => $data['kategori'],
-        ]);
+        ];
+
+        // Proses ganti foto jika ada yang diupload
+        if ($request->hasFile('photo')) {
+            try {
+                // Ambil path lama dari URL /storage/produk/... → path relatif
+                $oldMedium = $product->photo
+                    ? ltrim(str_replace('/storage/', '', $product->photo), '/')
+                    : null;
+                // Thumb disimpan di produk/thumb/ dengan nama yang sama
+                $oldThumb = $oldMedium
+                    ? str_replace('produk/medium/', 'produk/thumb/', $oldMedium)
+                    : null;
+
+                $paths = app(ImageUploadService::class)->updateImage(
+                    $request->file('photo'), $oldThumb, $oldMedium
+                );
+                $updates['photo'] = '/storage/'.$paths['medium'];
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
+
+        $product->update($updates);
 
         return response()->json(['ok' => true]);
     }
