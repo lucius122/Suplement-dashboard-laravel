@@ -184,6 +184,15 @@
       click(memberRowBtns()[0]);
       // " pcs" = baris data terisi; "Terjual" = header tabel ikut terender
       step('detail produk anggota terbuka (tabel berkolom)', await waitFor(() => / pcs/.test(appEl().textContent) && has('Terjual')));
+      // rincian punya 2 mode. Header dicek sbg satu untai ("TanggalProdukTerjualTotal")
+      // karena kata "Tanggal" sendirian juga muncul di panel "Penjualan per Tanggal".
+      const modeBtn = (k) => [...appEl().querySelectorAll('button')].find(b => b.title === 'mode-rincian-' + k);
+      step('pemilih mode rincian tampil', !!modeBtn('gabungan') && !!modeBtn('tanggal'));
+      click(modeBtn('tanggal'));
+      step('mode per tanggal → kolom Tanggal muncul', await waitFor(() => has('TanggalProdukTerjualTotal')));
+      step('baris per tanggal terisi tanggal', /\d{1,2} (Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des)/.test(appEl().textContent));
+      click(modeBtn('gabungan'));
+      step('kembali ke mode digabung', await waitFor(() => has('ProdukTerjualTotal') && !has('TanggalProdukTerjualTotal')));
       // dropdown pilih pegawai: buka, cari di dalamnya, pilih 2
       click(btn('Semua pegawai'));
       step('dropdown pegawai terbuka + bisa dicari', await waitFor(() => !!document.getElementById('i-membersearch')));
@@ -194,18 +203,21 @@
       step('cari dikosongkan → opsi penuh', await waitFor(() => opts().length >= 2));
       click(opts()[0]); click(opts()[1]);
       step('pilih 2 pegawai → footer terpilih', await waitFor(() => has('2 pegawai terpilih')));
-      step('tabel menyusut ke 2 baris terpilih', await waitFor(() => nRows() === 2));
+      // Redesain checklist: memilih TIDAK lagi menyembunyikan yang lain — baris yang
+      // tak terpilih cuma diredupkan, supaya peringkat penuh tetap terbaca saat
+      // membandingkan. Yang berubah hanya angka yang dihitung ke total.
+      step('semua baris tetap tampil (tidak menyusut)', nRows() === nAll);
       step('counter toolbar dinamis (2 dari N)', has('2 dari ' + nAll + ' pegawai'));
       const chipBtns = () => [...appEl().querySelectorAll('button')].filter(b => (b.title || '').startsWith('hapus-filter-'));
       step('chip filter aktif tampil (2 chip)', chipBtns().length === 2);
       click(chipBtns()[0]);
-      step('hapus 1 chip → tersisa 1 terpilih', await waitFor(() => nRows() === 1 && has('1 dari ' + nAll + ' pegawai')));
+      step('hapus 1 chip → tersisa 1 terpilih', await waitFor(() => has('1 dari ' + nAll + ' pegawai') && has('1 pegawai terpilih')));
       click(btn('Kosongkan'));
-      step('kosongkan pilihan → daftar penuh lagi', await waitFor(() => nRows() === nAll && !has('terpilih')));
+      step('kosongkan pilihan → semua dihitung lagi', await waitFor(() => !has('terpilih') && has('Semua pegawai')));
       click(btn('Pilih semua'));
       step('pilih semua → seluruh pegawai terpilih', await waitFor(() => has(nAll + ' dari ' + nAll + ' pegawai')));
       click(btn('Kosongkan'));
-      step('kosongkan lagi setelah pilih semua → daftar penuh', await waitFor(() => nRows() === nAll && !has('terpilih')));
+      step('kosongkan lagi setelah pilih semua', await waitFor(() => !has('terpilih') && has('Semua pegawai')));
       // dua tombol "Tahunan" di layar Laporan: [0] = Tren Omset (chip periode), terakhir = kartu per-anggota
       const tahunanBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tahunan');
       click(tahunanBtns()[tahunanBtns().length - 1]);

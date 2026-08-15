@@ -85,6 +85,7 @@ let S = {
   stokCat: 'Semua', userRole: 'Semua',
   userForm: false, prodForm: false,
   period: 'Harian', selYear: new Date().getFullYear(), uPeriod: 'Mingguan', selMembers: [], memberOpen: null, memberSearch: '', memberDropdown: false, // selMembers = pegawai dipilih utk banding ([] = semua)
+  memberItemMode: 'gabungan', // rincian produk: 'gabungan' (total periode) | 'tanggal' (dipecah per hari)
   uName: '', uUname: '', uPass: '', uRole: 'Kasir', uCabang: 'Pleburan', editUserId: null, // null = mode tambah
   pName:'', pVar:'', pKat:'', pHarga:'', pModal:'', pStok:'', pBranch:'', editProdId: null, // form produk (admin); editProdId null = mode tambah
   poForm:false, poName:'', poAmount:'', poDue:'',          // form Purchase Order (hutang supplier)
@@ -298,14 +299,26 @@ async function deleteBxCategory(c){
 async function openMemberDetail(uname){
   if(S.memberOpen === uname){ setState({ memberOpen: null }); return; }
   setState({ memberOpen: uname });
-  const key = uname + '|' + S.uPeriod;
-  if(!DB.memberItems[key]){
-    try {
-      const r = await api('/api/sales-by-user/' + encodeURIComponent(uname) + '/items?period=' + S.uPeriod);
-      DB.memberItems[key] = r.items;
-      render();
-    } catch(e) { setState({ memberOpen: null }); flash(e.message); }
-  }
+  loadMemberItems(uname);
+}
+
+// Dipakai saat membuka rincian DAN saat ganti mode. Cache dikunci per
+// (pegawai, periode, mode) supaya bolak-balik antar mode tidak menembak server lagi.
+const memberItemsKey = (uname) => uname + '|' + S.uPeriod + '|' + S.memberItemMode;
+async function loadMemberItems(uname){
+  const key = memberItemsKey(uname);
+  if(DB.memberItems[key]) return;
+  try {
+    const r = await api('/api/sales-by-user/' + encodeURIComponent(uname) + '/items?period=' + S.uPeriod + '&mode=' + S.memberItemMode);
+    DB.memberItems[key] = r.items;
+    render();
+  } catch(e) { setState({ memberOpen: null }); flash(e.message); }
+}
+
+function setMemberItemMode(mode){
+  if(S.memberItemMode === mode) return;
+  setState({ memberItemMode: mode });
+  if(S.memberOpen) loadMemberItems(S.memberOpen);
 }
 
 async function saveUser(){
@@ -796,21 +809,33 @@ function renderVals(){
   const mSel = new Set(S.selMembers);
   const toggleSel = (uname)=>{ const n=new Set(S.selMembers); if(n.has(uname)) n.delete(uname); else n.add(uname); setState({selMembers:[...n]}); };
   const removeSel = (uname)=>{ const n=new Set(S.selMembers); n.delete(uname); setState({selMembers:[...n]}); };
-  // tabel menampilkan yang dipilih; kalau belum ada yang dipilih → semua (peringkat penuh)
-  const mVisible = mSel.size ? mRanked.filter(u=>mSel.has(u.uname)) : mRanked;
-  const mAllZero = mVisible.length>0 && mVisible.every(u=>u.total===0);
+  // Seluruh pegawai SELALU tampil; yang tidak dipilih (lewat dropdown) cuma
+  // diredupkan, bukan disembunyikan — peringkat tetap terbaca utuh sambil
+  // membandingkan. Hanya yang dipilih yang dihitung ke total footer.
+  // selMembers kosong = semua dianggap terpilih.
+  const mIsSel = (u) => mSel.size===0 || mSel.has(u.uname);
+  const mCounted = mRanked.filter(mIsSel);
+  // Empty-state ("belum ada transaksi periode ini") dinilai dari SELURUH pegawai,
+  // bukan dari yang terpilih. Kalau dinilai dari yang terpilih, memilih orang yang
+  // kebetulan belum menjual akan menyembunyikan seluruh tabel — padahal
+  // transaksinya ada, cuma bukan oleh dia.
+  const mAllZero = mRanked.length>0 && mRanked.every(u=>u.total===0);
   // undefined (belum dimuat) harus tetap undefined, bukan jadi [] — template
   // membedakan "sedang memuat" dari "tidak ada penjualan".
   const memberItemRows = (key) => {
     const raw = DB.memberItems[key];
-    return raw && raw.map(r => ({ name:r.name, varian:r.varian, qtyText:r.qty+' pcs', totalText:rp(r.total) }));
+    return raw && raw.map(r => ({ name:r.name, varian:r.varian, qtyText:r.qty+' pcs', totalText:rp(r.total),
+      tanggalText: r.tanggal ? fmtDate(r.tanggal) : '' })); // kosong di mode gabungan
   };
-  const memberRows = mVisible.map(u => ({
-    rank:u.rank, name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang,
+  const memberRows = mRanked.map(u => ({
+    rank:u.rank, isTop:u.rank===1, name:u.name, unameText:'@'+u.uname, roleText:u.role, cabang:u.cabang,
+    // inisial dari maksimal dua kata pertama; '?' kalau nama entah bagaimana kosong
+    initials: ((u.name.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('')) || '?').toUpperCase(),
     totalText:rp(u.total), trxText:u.trx+'×', trxLong:u.trx+' transaksi', w:(u.total/mMax*100).toFixed(0)+'%',
     hasSales: u.total>0,
+    selected: mIsSel(u),
     open: S.memberOpen===u.uname, onDetail: ()=>openMemberDetail(u.uname),
-    items: memberItemRows(u.uname+'|'+S.uPeriod), // undefined = sedang dimuat
+    items: memberItemRows(u.uname+'|'+S.uPeriod+'|'+S.memberItemMode), // undefined = sedang dimuat
   }));
   // isi dropdown: seluruh pegawai, disaring oleh teks pencarian di dalam dropdown
   const mq = S.memberSearch.trim().toLowerCase();
@@ -824,8 +849,8 @@ function renderVals(){
   // chip filter aktif: satu chip per pegawai terpilih, bisa dihapus satu-satu
   const memberSelChips = mRanked.filter(u=>mSel.has(u.uname)).map(u=>({ name:u.name, onRemove:()=>removeSel(u.uname) }));
   // footer: kalau ada yang dipilih → jumlah terpilih; kalau tidak → seluruh pegawai
-  const memberTotal = mVisible.reduce((s,u)=>s+u.total,0);
-  const memberTrx = mVisible.reduce((s,u)=>s+u.trx,0);
+  const memberTotal = mCounted.reduce((s,u)=>s+u.total,0);
+  const memberTrx = mCounted.reduce((s,u)=>s+u.trx,0);
   // saran periode lebih luas utk empty-state (Tahunan = sudah paling luas, tak ada saran lagi)
   const uPeriodWider = { Mingguan:'Bulanan', Bulanan:'Tahunan' }[S.uPeriod];
 
@@ -968,7 +993,7 @@ function renderVals(){
     toggleBell:()=>setState({bell:!S.bell}), closeBell:()=>setState({bell:false}),
     goTempoFromBell:()=> S.role==='admin' ? setState({bell:false, screen:'tempo'}) : setState({bell:false}),
 
-    d_todayText:rp(D.today), d_trendText: D.trend ? D.trend+' dari kemarin' : (D.semua ? 'gabungan semua cabang' : 'Cabang baru — belum ada transaksi'),
+    d_todayText:rp(D.today), d_trendText: D.trend ? D.trend+' dari kemarin' : (D.semua ? 'gabungan semua cabang' : 'Cabang '+branch+' — belum ada transaksi'),
     d_tunaiText:rpShort(D.tunai), d_marketText:rpShort(D.market), d_tempoText:rpShort(D.tempo),
     d_monthText:rp(D.month), d_trxCount:D.trx+' transaksi',
     weekBars, topProducts,
@@ -1049,7 +1074,7 @@ function renderVals(){
 
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
     lapLoading, selYearText:String(S.selYear), onPrevYear, onNextYear,
-    uPeriod:S.uPeriod,
+    uPeriod:S.uPeriod, memberItemMode:S.memberItemMode,
     uPeriodChips: ['Mingguan','Bulanan','Tahunan'].map(p=>({label:p, ...chip(S.uPeriod===p), onClick:()=>changeUPeriod(p)})),
     memberRows, memberLoading: mLoading,
     memberNoData: !mLoading && mRanked.length===0,
@@ -1473,30 +1498,62 @@ const badge = (color,bg,text,fs) => `<span style="font-size:${fs||11}px;font-wei
 const chevronIc = (open,size) => `<svg width="${size||11}" height="${size||11}" viewBox="0 0 24 24" fill="none" style="display:inline-block;vertical-align:middle;flex:none;transition:transform .15s ease;transform:rotate(${open?90:0}deg);"><path d="M9 6l6 6-6 6" style="stroke:var(--muted);fill:none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 
 // rincian produk yang dijual satu anggota (drill-down, dimuat saat baris diklik)
-function memberDetailHtml(m, isDesktop){
-  if(m.items === undefined) return `<div style="margin-top:10px;font-size:12.5px;color:var(--muted);">Memuat rincian produk…</div>`;
-  if(m.items.length === 0) return `<div style="margin-top:10px;font-size:12.5px;color:var(--dim2);">Tidak ada penjualan produk pada periode ini.</div>`;
+/* Potongan baris "Penjualan per Anggota" — dipakai varian desktop DAN mobile.
+   Satu definisi supaya dua varian itu tidak pelan-pelan berbeda sendiri. */
+const memberRankHtml = (m) => `<span style="width:26px;height:26px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Saira',sans-serif;font-weight:800;font-size:12.5px;background:${m.isTop?'var(--gold)':'var(--chip)'};color:${m.isTop?'#161208':'var(--text2)'};">${m.rank}</span>`;
+
+const memberAvatarHtml = (m, size) => `<span style="width:${size}px;height:${size}px;flex:none;border-radius:50%;background:var(--chip);color:var(--text2);display:flex;align-items:center;justify-content:center;font-family:'Saira',sans-serif;font-weight:700;font-size:${size>=34?12.5:11}px;">${esc(m.initials)}</span>`;
+
+// Hanya peringkat 1 yang emas; sisanya abu supaya juaranya langsung kelihatan.
+const memberBarHtml = (m) => m.hasSales
+  ? `<span style="height:7px;border-radius:4px;background:var(--chip);overflow:hidden;flex:1;min-width:56px;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:${m.isTop?'linear-gradient(90deg,var(--gold),var(--goldhi))':'var(--muted)'};"></span></span>`
+  : `<span style="flex:1;min-width:56px;"></span>`;
+
+// Tombol buka/tutup rincian produk. title="detail-@uname" dipakai e2e — jangan diubah.
+const memberCaretHtml = (m) => `<button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" aria-expanded="${m.open}" aria-label="Rincian produk ${esc(m.name)}" class="fx-hover" style="width:26px;height:26px;flex:none;padding:0;border-radius:8px;border:none;background:var(--chip);cursor:pointer;display:flex;align-items:center;justify-content:center;">${chevronIc(m.open)}</button>`;
+
+function memberDetailHtml(m, V){
+  const isDesktop = V.isDesktop;
+  const perTanggal = V.memberItemMode === 'tanggal';
+  // Pemilih mode selalu dirender — termasuk saat memuat & kosong — supaya tidak
+  // ada lompatan tata letak saat berpindah mode.
+  const modeSwitch = `<div style="display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap;">
+    ${[['gabungan','Total digabung'],['tanggal','Per tanggal']].map(([k,label]) => {
+      const on = V.memberItemMode === k;
+      return `<button ${A(()=>setMemberItemMode(k))} title="mode-rincian-${k}" style="height:28px;padding:0 11px;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:600;font-family:'Hanken Grotesk',sans-serif;border:1px solid ${on?'var(--goldborder)':'var(--border)'};background:${on?'var(--goldtint2)':'transparent'};color:${on?'var(--gold)':'var(--muted)'};">${label}</button>`;
+    }).join('')}
+  </div>`;
+  const shell = (isi) => `<div style="margin-top:11px;border-top:1px dashed var(--border);padding-top:10px;">${modeSwitch}${isi}</div>`;
+
+  if(m.items === undefined) return shell(`<div style="font-size:12.5px;color:var(--muted);">Memuat rincian produk…</div>`);
+  if(m.items.length === 0) return shell(`<div style="font-size:12.5px;color:var(--dim2);">Tidak ada penjualan produk pada periode ini.</div>`);
   // Header & isi WAJIB pakai grid yang sama persis — kesejajaran kolom itu yang
   // bikin tabel enak dipindai, bukan garisnya. Di mobile kolom angka dipersempit
   // dan nama dibiarkan turun baris (bukan dipotong), karena sisa lebarnya cuma
   // ~90px kalau memakai ukuran desktop.
   const cols = isDesktop
-    ? 'display:grid;grid-template-columns:1fr 62px 96px;gap:10px;'
-    : 'display:grid;grid-template-columns:1fr 50px 86px;gap:7px;';
+    ? (perTanggal ? 'display:grid;grid-template-columns:76px 1fr 62px 96px;gap:10px;' : 'display:grid;grid-template-columns:1fr 62px 96px;gap:10px;')
+    : (perTanggal ? 'display:grid;grid-template-columns:56px 1fr 44px 78px;gap:6px;' : 'display:grid;grid-template-columns:1fr 50px 86px;gap:7px;');
   const nameStyle = isDesktop
     ? 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
     : 'line-height:1.35;';
-  return `<div style="margin-top:11px;border-top:1px dashed var(--border);padding-top:10px;">
+  // 200 = batas yang dipasang server; kalau mentok, katakan apa adanya supaya
+  // angka di daftar ini tidak dikira seluruh periode.
+  const catatanBatas = perTanggal && m.items.length >= 200
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--muted);">Menampilkan 200 penjualan terbaru. Total di baris pegawai tetap menghitung seluruh periode.</div>`
+    : '';
+  return shell(`
     <div style="${cols}padding:0 9px 6px;font-family:'Saira',sans-serif;font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border2);">
-      <span>Produk</span><span style="text-align:right;">Terjual</span><span style="text-align:right;">Total</span>
+      ${perTanggal ? '<span>Tanggal</span>' : ''}<span>Produk</span><span style="text-align:right;">Terjual</span><span style="text-align:right;">Total</span>
     </div>
     ${m.items.map((it,i) => `
       <div style="${cols}align-items:center;padding:8px 9px;font-size:12.5px;${i < m.items.length-1 ? 'border-bottom:1px solid var(--divider);' : ''}">
+        ${perTanggal ? `<span style="color:var(--text2);white-space:nowrap;">${esc(it.tanggalText)}</span>` : ''}
         <span style="min-width:0;${nameStyle}">${esc(it.name)} <span style="color:var(--muted);">${esc(it.varian)}</span></span>
         <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;">${esc(it.qtyText)}</span>
         <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;">${esc(it.totalText)}</span>
       </div>`).join('')}
-  </div>`;
+    ${catatanBatas}`);
 }
 
 function secDashboardHtml(V){
@@ -1505,7 +1562,7 @@ function secDashboardHtml(V){
       <div style="border-radius:18px;padding:18px;background:linear-gradient(150deg,var(--g2),var(--g1));box-shadow:var(--cardshadow);border:1px solid var(--goldborder);">
         <div style="font-size:12.5px;color:var(--goldsoft);">Pemasukan Hari Ini</div>
         <div style="font-family:'Saira',sans-serif;font-weight:900;font-size:27px;margin:6px 0 3px;line-height:1;">${V.d_todayText}</div>
-        <div style="font-size:12px;color:var(--ok);">${V.d_trendText}</div>
+        <div style="font-size:12px;color:var(--ok);">${esc(V.d_trendText)}</div>
       </div>
       <div style="border-radius:18px;padding:18px;background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);">
         <div style="font-size:12.5px;color:var(--muted);">Omset Bulan Ini</div>
@@ -1823,37 +1880,45 @@ function secLaporanHtml(V){
             ${V.onMemberWiderPeriod ? `<button ${A(V.onMemberWiderPeriod)} style="background:none;border:none;color:var(--gold);font-size:12.5px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Lihat periode ${esc(V.memberWiderPeriodLabel)} ›</button>` : ''}
           </div>` : `
         ${V.isDesktop ? `
-          <div style="display:grid;grid-template-columns:48px 1fr 140px 120px;padding:0 12px 10px;font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
-            <span>#</span><span>Pegawai</span><span style="text-align:right;">Transaksi</span><span style="text-align:right;">Total</span>
-          </div>
-          <div class="scrl" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+          <div class="scrl scrl-chain" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
             ${V.memberRows.map(m => `
-              <div style="border:1px solid var(--border2);border-radius:13px;background:var(--surface2);padding:12px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;display:grid;grid-template-columns:48px 1fr 140px 120px;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;color:var(--text);border-radius:9px;">
-                  <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${m.rank<=3?'var(--gold)':'var(--muted)'};">${m.rank}</span>
-                  <span style="min-width:0;">
-                    <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${chevronIc(m.open)} ${esc(m.name)}</span>
-                    <span style="display:block;font-size:11px;color:var(--text2);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
-                    ${m.hasSales ? `<span style="display:block;height:6px;border-radius:4px;background:var(--chip);overflow:hidden;margin-top:6px;max-width:280px;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : ''}
+              <div>
+                <div style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;background:${m.selected?'var(--surface2)':'transparent'};">
+                  ${memberRankHtml(m)}
+                  ${memberAvatarHtml(m, 34)}
+                  <span style="width:172px;flex:none;min-width:0;">
+                    <span style="display:block;font-size:13.5px;font-weight:600;color:${m.selected?'var(--text)':'var(--dim)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.name)}</span>
+                    <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.unameText)} · ${esc(m.roleText)} · ${esc(m.cabang)}</span>
                   </span>
-                  <span style="text-align:right;font-size:12.5px;color:var(--text2);">${m.trxLong}</span>
-                  <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span>
-                </button>
-                ${m.open ? memberDetailHtml(m, V.isDesktop) : ''}
+                  ${memberBarHtml(m)}
+                  <span style="width:124px;flex:none;text-align:right;">
+                    <span style="display:block;font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:${m.selected?'var(--text)':'var(--dim)'};">${m.totalText}</span>
+                    <span style="display:block;font-size:10.5px;color:var(--muted);margin-top:2px;">${m.trxLong}</span>
+                  </span>
+                  ${memberCaretHtml(m)}
+                </div>
+                ${m.open ? `<div style="margin:0 12px 8px 46px;">${memberDetailHtml(m, V)}</div>` : ''}
               </div>`).join('')}
           </div>` : `
-          <div class="scrl" style="max-height:60dvh;overflow-y:auto;display:flex;flex-direction:column;gap:9px;">
+          <div class="scrl scrl-chain" style="max-height:60dvh;overflow-y:auto;display:flex;flex-direction:column;gap:3px;">
             ${V.memberRows.map(m => `
-              <div style="border:1px solid var(--border2);border-radius:14px;background:var(--surface2);padding:13px 14px;">
-                <button ${A(m.onDetail)} title="detail-${esc(m.unameText)}" class="fx-hover" style="width:100%;background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:'Hanken Grotesk',sans-serif;color:var(--text);border-radius:10px;">
-                  <span style="display:block;font-size:13.5px;font-weight:600;color:var(--text);">${chevronIc(m.open)} <span style="color:${m.rank<=3?'var(--gold)':'var(--muted)'};font-family:'Saira',sans-serif;font-weight:800;">#${m.rank}</span> ${esc(m.name)}</span>
-                  <span style="display:block;font-size:11px;color:var(--text2);margin-top:2px;">${esc(m.unameText)} · ${m.roleText} · ${esc(m.cabang)}</span>
-                  <span style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;">
-                    ${m.hasSales ? `<span style="height:7px;border-radius:4px;background:var(--chip);overflow:hidden;flex:1;"><span style="display:block;height:100%;border-radius:4px;width:${m.w};background:linear-gradient(90deg,var(--gold),var(--goldhi));"></span></span>` : `<span style="flex:1;"></span>`}
-                    <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--text);">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
+              <div>
+                <div style="border-radius:13px;background:${m.selected?'var(--surface2)':'transparent'};padding:11px 12px;">
+                  <span style="display:flex;align-items:center;gap:10px;">
+                    ${memberRankHtml(m)}
+                    ${memberAvatarHtml(m, 30)}
+                    <span style="flex:1;min-width:0;">
+                      <span style="display:block;font-size:13.5px;font-weight:600;color:${m.selected?'var(--text)':'var(--dim)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.name)}</span>
+                      <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.unameText)} · ${esc(m.roleText)} · ${esc(m.cabang)}</span>
+                    </span>
+                    ${memberCaretHtml(m)}
                   </span>
-                </button>
-                ${m.open ? memberDetailHtml(m, V.isDesktop) : ''}
+                  <span style="display:flex;align-items:center;gap:10px;margin-top:9px;">
+                    ${memberBarHtml(m)}
+                    <span style="white-space:nowrap;font-size:12px;"><span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:${m.selected?'var(--text)':'var(--dim)'};">${m.totalText}</span> <span style="color:var(--muted);">· ${m.trxText}</span></span>
+                  </span>
+                </div>
+                ${m.open ? `<div style="margin:0 12px 8px;">${memberDetailHtml(m, V)}</div>` : ''}
               </div>`).join('')}
           </div>`}
         <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border2);margin-top:16px;padding-top:14px;gap:10px;flex-wrap:wrap;">

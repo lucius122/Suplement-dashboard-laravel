@@ -348,21 +348,42 @@ class DashboardController extends Controller
     public function salesByUserItems(Request $request, string $username)
     {
         $this->assertAdmin($request);
-        $data = $request->validate(['period' => ['required', Rule::in(['Mingguan', 'Bulanan', 'Tahunan'])]]);
+        $data = $request->validate([
+            'period' => ['required', Rule::in(['Mingguan', 'Bulanan', 'Tahunan'])],
+            // gabungan = satu baris per produk (total periode); tanggal = dipecah per hari
+            'mode' => ['nullable', Rule::in(['gabungan', 'tanggal'])],
+        ]);
 
         $since = $this->periodStart($data['period']);
         $user = User::where('username', $username)->firstOrFail();
 
         // rincian produk yang dijual satu anggota pada periode tsb (drill-down, on demand)
-        $items = DB::table('transaction_items')
+        $q = DB::table('transaction_items')
             ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
             ->join('products', 'products.id', '=', 'transaction_items.product_id')
             ->where('transactions.user_id', $user->id)
-            ->where('transactions.created_at', '>=', $since)
-            ->groupBy('products.id', 'products.name', 'products.varian')
-            ->selectRaw('products.name, products.varian, SUM(transaction_items.qty) as qty, SUM(transaction_items.qty * transaction_items.price) as total')
-            ->orderByDesc('qty')
-            ->get();
+            ->where('transactions.created_at', '>=', $since);
+
+        if (($data['mode'] ?? 'gabungan') === 'tanggal') {
+            // DATE() dipilih karena ada di MySQL DAN SQLite (tes pakai SQLite) — jangan
+            // ditukar ke fungsi tanggal khusus satu dialek.
+            // Dibatasi 200 baris terbaru: FE me-render ulang seluruh UI tiap setState,
+            // jadi daftar tak terbatas bikin tiap klik terasa berat. Pola batas yang
+            // sama dipakai productMovements.
+            $items = $q
+                ->groupByRaw('DATE(transactions.created_at), products.id, products.name, products.varian')
+                ->selectRaw('DATE(transactions.created_at) as tanggal, products.name, products.varian, SUM(transaction_items.qty) as qty, SUM(transaction_items.qty * transaction_items.price) as total')
+                ->orderByRaw('DATE(transactions.created_at) DESC')
+                ->orderByDesc('qty')
+                ->limit(200)
+                ->get();
+        } else {
+            $items = $q
+                ->groupBy('products.id', 'products.name', 'products.varian')
+                ->selectRaw('products.name, products.varian, SUM(transaction_items.qty) as qty, SUM(transaction_items.qty * transaction_items.price) as total')
+                ->orderByDesc('qty')
+                ->get();
+        }
 
         return response()->json(['items' => $items]);
     }

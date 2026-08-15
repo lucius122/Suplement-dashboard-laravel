@@ -15,6 +15,14 @@ body { margin:0; background:#0a0a0c; }
 .scrl::-webkit-scrollbar-track{ background:transparent; }
 .scrl::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
 .scrl{ scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+/* Untuk .scrl yang BERSARANG di dalam .scrl lain dan isinya sering lebih pendek
+   dari max-height-nya (mis. daftar pegawai saat pegawainya cuma 3). Wadah begitu
+   tetap dihitung browser sebagai scroll container, tapi tak punya apa pun untuk
+   digulir — dan `contain` menahan wheel agar tidak merambat ke induknya. Hasilnya
+   halaman macet total selama kursor ada di atas daftar itu. `auto` mengembalikan
+   perambatan: gulir diteruskan ke .scrl induk. Aman, karena induknya masih
+   `contain` sehingga tetap tidak pernah bocor sampai ke html/body. */
+.scrl-chain{ overscroll-behavior:auto; }
 @keyframes ssPop  { from{ transform:translateY(8px); opacity:.7 } to{ transform:none; opacity:1 } }
 /* khusus modal yang ditengahkan dengan translate(-50%,-50%): keyframes WAJIB
    menyertakan translate itu — kalau tidak, animasi menimpa transform penengah
