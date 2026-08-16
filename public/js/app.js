@@ -100,6 +100,7 @@ let S = {
   editExpenseId:null,                                       // null = form Catat Biaya mode tambah
   confirmPay:null,                                          // modal konfirmasi tandai lunas: {kind:'receivable'|'supplier', row} | null
   confirmDelete:null,                                       // modal konfirmasi hapus generik: {label, onConfirm} | null
+  receivableHist:null,                                      // modal riwayat cicilan piutang: row | null
   uPassShow:false,                                          // tombol mata password form user
   theme: 'dark', settingsBack: 'dashboard',
   branchMenu: false, branchForm: false, newCat: '', catForm: false, newBranch: '', editBranchId: null,
@@ -189,17 +190,30 @@ async function logout(){
   location.reload(); // token CSRF di-regenerate server; reload mengambil token & state segar
 }
 
-async function markPaid(id){
-  try { await api('/api/receivables/'+id+'/pay', 'POST', {}); await loadAll(); flash('Tagihan ditandai lunas'); }
+async function markPaid(id, amount){
+  try {
+    const body = (amount !== null && amount !== undefined && Number(amount) > 0) ? { amount: Number(amount) } : {};
+    const res = await api('/api/receivables/'+id+'/pay', 'POST', body);
+    await loadAll();
+    if (res.paid) {
+      flash('Tagihan berhasil dilunasi');
+    } else {
+      flash('Pembayaran cicilan berhasil dicatat (Sisa ' + rp(res.remaining) + ')');
+    }
+  }
   catch(e) { flash(e.message); }
 }
-// konfirmasi sebelum tandai lunas (piutang/hutang supplier) — cegah salah klik
-function askConfirmPay(kind, row){ setState({ confirmPay:{ kind, row } }); }
+// konfirmasi sebelum tandai lunas / bayar cicilan (piutang/hutang supplier) — cegah salah klik
+function askConfirmPay(kind, row){
+  const rem = kind === 'receivable' ? (row.remaining !== undefined ? row.remaining : Math.max(0, row.amount - (row.paid_amount || 0))) : row.amount;
+  setState({ confirmPay:{ kind, row, payAmount: String(rem) } });
+}
 async function doConfirmPay(){
   const c = S.confirmPay;
   if(!c) return;
+  const payAmt = c.payAmount !== undefined && c.payAmount !== '' ? Number(c.payAmount) : null;
   setState({ confirmPay:null });
-  if(c.kind==='receivable') await markPaid(c.row.id);
+  if(c.kind==='receivable') await markPaid(c.row.id, payAmt);
   else if(c.kind==='supplier') await paySupplier(c.row);
 }
 // konfirmasi generik sebelum hapus (biaya, kategori biaya, dst) — cegah salah klik
@@ -513,10 +527,17 @@ async function toggleUser(u){
 /* ================= derived data ================= */
 /* ================= derived data ================= */
 function receivableStatusBadge(r) {
-  if (r.paid) {
+  const paidAmt = r.paid_amount || 0;
+  const remaining = r.remaining !== undefined ? r.remaining : Math.max(0, r.amount - paidAmt);
+  if (r.paid || remaining <= 0) {
     return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--ok);background:var(--oktint);border:1px solid var(--okborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Lunas">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
       Lunas
+    </span>`;
+  }
+  if (paidAmt > 0) {
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warntint);border:1px solid var(--goldborder);white-space:nowrap;user-select:none;pointer-events:none;" aria-label="Status: Dicicil (Sisa ${rp(remaining)})">
+      Dicicil (${rp(remaining)})
     </span>`;
   }
   if (r.dl < 0) {
@@ -537,11 +558,15 @@ function receivableStatusBadge(r) {
 
 function markPaidBtnHtml(r, isFullWidth = false) {
   if (r.paid) return "";
-  const fullStyle = isFullWidth ? "width:100%;margin-top:12px;" : "";
-  return `<button type="button" aria-label="Tandai piutang ${esc(r.name)} sebesar ${rp(r.amount)} sebagai lunas" ${A(r.onPaid)} class="btn-mark-paid" style="${fullStyle}height:34px;padding:0 12px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-    Tandai Lunas
-  </button>`;
+  const fullStyle = isFullWidth ? "width:100%;margin-top:10px;" : "";
+  const hasHistory = r.onHistory && r.payments && r.payments.length > 0;
+  return `<div style="display:inline-flex;gap:6px;align-items:center;${fullStyle}">
+    <button type="button" aria-label="Bayar cicilan piutang ${esc(r.name)}" ${A(r.onPaid)} class="btn-mark-paid" style="${isFullWidth?'flex:1;':''}height:34px;padding:0 12px;border-radius:8px;background:var(--goldtint);border:1px solid var(--goldborder);color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-family:'Hanken Grotesk',sans-serif;outline:none;transition:all 0.15s ease;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style="flex:none;"><path d="M20 6L9 17l-5-5" stroke="var(--gold)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      Bayar / Cicil
+    </button>
+    ${hasHistory ? `<button type="button" title="Riwayat Cicilan" ${A(r.onHistory)} style="height:34px;padding:0 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Riwayat</button>` : ''}
+  </div>`;
 }
 
 function supplierStatusBadge(s) {
@@ -611,11 +636,14 @@ function expenseActionBtnHtml(x, isFullWidth = false) {
 function recvView(){
   return DB.receivables.map(r => {
     const dl = daysLeft(r.due);
+    const paidAmt = r.paid_amount || 0;
+    const remaining = r.remaining !== undefined ? r.remaining : Math.max(0, r.amount - paidAmt);
     let status, color, bg;
-    if(r.paid){ status='Lunas'; color='var(--ok)'; bg='var(--oktint)'; }
+    if(r.paid || remaining <= 0){ status='Lunas'; color='var(--ok)'; bg='var(--oktint)'; }
+    else if(paidAmt > 0){ status='Dicicil'; color='var(--warn)'; bg='var(--warntint)'; }
     else if(dl < 0){ status='Terlambat'; color='var(--danger)'; bg='var(--dangertint)'; }
-    else { status='Belum Lunas'; color='var(--warn)'; bg='var(--warntint)'; }
-    return { ...r, dl, status, color, bg, soon: !r.paid && dl <= 3 };
+    else { status='Belum Lunas'; color='var(--dangersoft)'; bg='var(--dangertint)'; }
+    return { ...r, dl, paidAmt, remaining, status, color, bg, soon: !r.paid && dl <= 3 };
   });
 }
 function expenseDueView(){
@@ -753,11 +781,17 @@ function renderVals(){
     return true;
   }).sort((a,b)=>(a.paid-b.paid)||(b.id-a.id)).map(r => {
     const onPaid = () => askConfirmPay("receivable", r);
-    const item = { ...r, onPaid };
+    const onHistory = r.payments && r.payments.length ? () => setState({ receivableHist: r }) : null;
+    const paidAmt = r.paid_amount || 0;
+    const remaining = r.remaining !== undefined ? r.remaining : Math.max(0, r.amount - paidAmt);
+    const item = { ...r, onPaid, onHistory };
     return {
       id: r.id,
       name: r.name,
       amountText: rp(r.amount),
+      paidAmt,
+      paidText: rp(paidAmt),
+      remainingText: rp(remaining),
       trxText: fmtDate(r.trx),
       dueText: fmtDate(r.due),
       status: r.status,
@@ -765,6 +799,7 @@ function renderVals(){
       bg: r.bg,
       notPaid: !r.paid,
       onPaid,
+      onHistory,
       statusBadgeHtml: receivableStatusBadge(item),
       actionHtml: markPaidBtnHtml(item, false),
       actionMobileHtml: markPaidBtnHtml(item, true),
@@ -1226,8 +1261,18 @@ function renderVals(){
     saveRestock:()=>saveRestock(),
 
     confirmPay:S.confirmPay,
+    confirmPayAmount: S.confirmPay ? (S.confirmPay.payAmount !== undefined ? S.confirmPay.payAmount : '') : '',
+    onPayAmountInput: (e) => setState({ confirmPay: { ...S.confirmPay, payAmount: (e.target.value||'').replace(/\D/g,'') } }),
+    setFullPayAmount: () => {
+      const row = S.confirmPay ? S.confirmPay.row : null;
+      const rem = row ? (row.remaining !== undefined ? row.remaining : Math.max(0, row.amount - (row.paid_amount || 0))) : 0;
+      setState({ confirmPay: { ...S.confirmPay, payAmount: String(rem) } });
+    },
     closeConfirmPay:()=>setState({confirmPay:null}),
     doConfirmPay:()=>doConfirmPay(),
+
+    receivableHist: S.receivableHist,
+    closeRecvHist: () => setState({ receivableHist: null }),
 
     confirmDelete:S.confirmDelete,
     closeConfirmDelete:()=>setState({confirmDelete:null}),
@@ -1736,13 +1781,16 @@ function secPiutangHtml(V){
     ${V.piutangEmpty ? `<div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;padding:30px;text-align:center;color:var(--dim2);font-size:14px;">Tidak ada data.</div>` : ''}
     ${V.isDesktop ? `
       <div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
-        <div style="display:grid;grid-template-columns:2fr 1.3fr 1fr 1fr 1.3fr 1.2fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
-          <span>Pembeli</span><span>Nominal</span><span>Transaksi</span><span>Tempo</span><span>Status</span><span style="text-align:right;">Aksi</span>
+        <div style="display:grid;grid-template-columns:2fr 1.4fr 1fr 1fr 1.3fr 1.5fr;padding:14px 18px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+          <span>Pembeli</span><span>Nominal &amp; Sisa</span><span>Transaksi</span><span>Tempo</span><span>Status</span><span style="text-align:right;">Aksi</span>
         </div>
         ${V.piutangRows.map(r => `
-          <div style="display:grid;grid-template-columns:2fr 1.3fr 1fr 1fr 1.3fr 1.2fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
+          <div style="display:grid;grid-template-columns:2fr 1.4fr 1fr 1fr 1.3fr 1.5fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
             <span style="font-weight:600;">${esc(r.name)}</span>
-            <span style="font-family:'Saira',sans-serif;font-weight:700;">${r.amountText}</span>
+            <div>
+              <div style="font-family:'Saira',sans-serif;font-weight:700;">${r.amountText}</div>
+              ${r.paidAmt > 0 && r.notPaid ? `<div style="font-size:11.5px;color:var(--muted);margin-top:1px;">Sisa: <span style="color:var(--danger);font-weight:700;font-family:'Saira',sans-serif;">${r.remainingText}</span></div>` : ''}
+            </div>
             <span style="color:var(--muted);">${r.trxText}</span>
             <span style="color:var(--muted);">${r.dueText}</span>
             <span>${r.statusBadgeHtml}</span>
@@ -1756,7 +1804,10 @@ function secPiutangHtml(V){
               <span style="font-weight:600;font-size:14.5px;min-width:0;word-break:break-word;">${esc(r.name)}</span>
               ${r.statusBadgeHtml}
             </div>
-            <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:21px;margin-top:9px;">${r.amountText}</div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;">
+              <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;">${r.amountText}</div>
+              ${r.paidAmt > 0 && r.notPaid ? `<div style="font-size:12px;color:var(--muted);">Sisa: <b style="color:var(--danger);font-family:'Saira',sans-serif;font-size:14px;">${r.remainingText}</b></div>` : ''}
+            </div>
             <div style="font-size:12px;color:var(--muted);margin-top:5px;">Transaksi ${r.trxText} · Tempo ${r.dueText}</div>
             ${r.actionMobileHtml}
           </div>`).join('')}
@@ -2438,20 +2489,23 @@ function branchFormHtml(V){
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeBranchForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('branchForm')}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('branchForm')}">
+    <div style="flex:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Cabang</h3>
       <button ${A(V.closeBranchForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Cabang yang masih punya data (produk/user/transaksi/piutang/biaya) tidak bisa dihapus.</p>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+    <p style="flex:none;font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Cabang baru langsung muncul di pilihan cabang. Cabang yang masih punya data (produk/user/transaksi/piutang/biaya) tidak bisa dihapus.</p>
+    <!-- Hanya daftar cabang yang bergulir; judul, isian nama, dan tombol tetap di
+         tempat berapa pun banyaknya cabang. flex:0 1 auto = setinggi isinya, tapi
+         boleh menyusut kalau layarnya pendek. -->
+    <div class="scrl" style="flex:0 1 auto;min-height:0;max-height:min(280px,40dvh);overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
       ${V.branchRows.map(b => `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:9px 9px 9px 14px;">
           <span style="font-size:13.5px;font-weight:600;">${esc(b.name)}</span>
           <button ${A(b.onEdit)} title="edit-branch-${esc(b.name)}" style="height:30px;padding:0 13px;flex:none;border-radius:9px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>
         </div>`).join('')}
     </div>
-    <div>${lbl(V.branchFormIsEdit ? 'Edit Cabang' : 'Nama Cabang')}
+    <div style="flex:none;">${lbl(V.branchFormIsEdit ? 'Edit Cabang' : 'Nama Cabang')}
       <div style="display:flex;gap:8px;">
         <input id="i-newbranch" value="${esc(V.newBranch)}" ${I(V.onNewBranch)} placeholder="cnt. Yogyakarta" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
         <button ${A(V.saveBranch)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">${V.branchFormIsEdit ? 'SIMPAN' : 'TAMBAH'}</button>
@@ -2465,7 +2519,7 @@ function branchFormHtml(V){
               : ""
       }
     </div>
-    <button ${A(V.closeBranchForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+    <button ${A(V.closeBranchForm)} style="flex:none;width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
@@ -2578,26 +2632,29 @@ function catFormHtml(V){
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('catForm')}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('catForm')}">
+    <div style="flex:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Kategori</h3>
       <button ${A(V.closeCatForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk filter stok dan pengelompokan produk. Kategori yang masih dipakai produk tidak bisa dihapus.</p>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+    <p style="flex:none;font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk filter stok dan pengelompokan produk. Kategori yang masih dipakai produk tidak bisa dihapus.</p>
+    <!-- Hanya daftar yang bergulir; judul, isian, dan tombol tetap di tempat
+         berapa pun banyaknya baris. flex:0 1 auto = setinggi isinya, tapi
+         boleh menyusut kalau layarnya pendek. -->
+    <div class="scrl" style="flex:0 1 auto;min-height:0;max-height:min(280px,40dvh);overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
       ${V.catRows.map(c => `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:9px 9px 9px 14px;">
           <span style="font-size:13.5px;font-weight:600;">${esc(c.name)}</span>
           <button ${A(c.onDelete)} title="hapus-${esc(c.name)}" style="width:30px;height:30px;flex:none;border-radius:9px;background:var(--dangertint);border:1px solid var(--dangerborder);color:var(--danger);font-size:16px;line-height:1;cursor:pointer;">×</button>
         </div>`).join('')}
     </div>
-    <div>${lbl('Kategori Baru')}
+    <div style="flex:none;">${lbl('Kategori Baru')}
       <div style="display:flex;gap:8px;">
         <input id="i-newcat" value="${esc(V.newCat)}" ${I(V.onNewCat)} placeholder="cnt. Vitamin" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
         <button ${A(V.saveCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">TAMBAH</button>
       </div>
     </div>
-    <button ${A(V.closeCatForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+    <button ${A(V.closeCatForm)} style="flex:none;width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
@@ -2671,20 +2728,23 @@ function bxCatFormHtml(V){
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
   return `
   <div ${A(V.closeBxCatForm)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div class="scrl" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('bxCatForm')}">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('bxCatForm')}">
+    <div style="flex:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Kelola Kategori Biaya</h3>
       <button ${A(V.closeBxCatForm)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
     </div>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk mengelompokkan biaya operasional. Kategori yang masih dipakai catatan biaya tidak bisa dihapus.</p>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+    <p style="flex:none;font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">Kategori dipakai untuk mengelompokkan biaya operasional. Kategori yang masih dipakai catatan biaya tidak bisa dihapus.</p>
+    <!-- Hanya daftar yang bergulir; judul, isian, dan tombol tetap di tempat
+         berapa pun banyaknya baris. flex:0 1 auto = setinggi isinya, tapi
+         boleh menyusut kalau layarnya pendek. -->
+    <div class="scrl" style="flex:0 1 auto;min-height:0;max-height:min(280px,40dvh);overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
       ${V.bxCatRows.map(c => `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:9px 9px 9px 14px;">
           <span style="font-size:13.5px;font-weight:600;">${esc(c.name)}</span>
           <button ${A(c.onEdit)} title="edit-bxcat-${esc(c.name)}" style="height:30px;padding:0 13px;flex:none;border-radius:9px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:12px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Edit</button>
         </div>`).join('')}
     </div>
-    <div>${lbl(V.bxCatFormIsEdit ? 'Edit Kategori' : 'Kategori Baru')}
+    <div style="flex:none;">${lbl(V.bxCatFormIsEdit ? 'Edit Kategori' : 'Kategori Baru')}
       <div style="display:flex;gap:8px;">
         <input id="i-newbxcat" value="${esc(V.newBxCat)}" ${I(V.onNewBxCat)} placeholder="cnt. Internet" style="flex:1;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:0 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;">
         <button ${A(V.saveBxCategory)} style="flex:none;height:46px;padding:0 18px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">${V.bxCatFormIsEdit ? 'SIMPAN' : 'TAMBAH'}</button>
@@ -2694,22 +2754,77 @@ function bxCatFormHtml(V){
         <button ${A(V.confirmDeleteBxCat)} style="background:none;border:none;color:var(--danger);font-size:12.5px;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">Hapus kategori ini</button>
       </div>` : ''}
     </div>
-    <button ${A(V.closeBxCatForm)} style="width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
+    <button ${A(V.closeBxCatForm)} style="flex:none;width:100%;margin-top:14px;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
 function confirmPayHtml(V){
-  const c = V.confirmPay; // {kind:'receivable'|'supplier', row}
+  const c = V.confirmPay; // {kind:'receivable'|'supplier', row, payAmount}
+  if (!c) return '';
+  const isRecv = c.kind === 'receivable';
+  const remaining = isRecv ? (c.row.remaining !== undefined ? c.row.remaining : Math.max(0, c.row.amount - (c.row.paid_amount || 0))) : c.row.amount;
+  const paidAmt = isRecv ? (c.row.paid_amount || 0) : 0;
+
   return `
   <div ${A(V.closeConfirmPay)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
-  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(400px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;${V.popModal('confirmPay')}">
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin:0 0 12px;">Konfirmasi Pelunasan</h3>
-    <p style="font-size:15px;color:var(--text);margin:0 0 6px;line-height:1.6;">Anda yakin <b style="color:var(--gold);">${esc(c.row.name)}</b> sudah lunas?</p>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 22px;">Nominal ${rp(c.row.amount)}${c.kind==='supplier'?' · hutang ke supplier':''}</p>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;${V.popModal('confirmPay')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin:0;">${isRecv ? 'Pembayaran / Cicilan Piutang' : 'Konfirmasi Pelunasan'}</h3>
+      <button ${A(V.closeConfirmPay)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    
+    <p style="font-size:14.5px;color:var(--text);margin:0 0 12px;line-height:1.5;">Pelanggan: <b style="color:var(--gold);">${esc(c.row.name)}</b></p>
+
+    ${isRecv ? `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;text-align:center;">
+      <div><span style="color:var(--muted);display:block;">Total</span><strong style="font-family:'Saira',sans-serif;font-size:14px;">${rp(c.row.amount)}</strong></div>
+      <div><span style="color:var(--muted);display:block;">Terbayar</span><strong style="font-family:'Saira',sans-serif;font-size:14px;color:var(--ok);">${rp(paidAmt)}</strong></div>
+      <div><span style="color:var(--muted);display:block;">Sisa</span><strong style="font-family:'Saira',sans-serif;font-size:14px;color:var(--danger);">${rp(remaining)}</strong></div>
+    </div>
+    <div style="margin-bottom:18px;">
+      ${lbl('Nominal Pembayaran Cicilan (Rp)')}
+      <input id="i-payamount" type="text" inputmode="numeric" value="${esc(V.confirmPayAmount)}" ${I(V.onPayAmountInput)} placeholder="Masukkan nominal cicilan" style="width:100%;height:46px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:15px;font-weight:700;font-family:'Saira',sans-serif;padding:0 14px;outline:none;box-sizing:border-box;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+        <span style="font-size:11.5px;color:var(--muted);">Kosongkan / isi ${rp(remaining)} untuk lunas.</span>
+        <button type="button" ${A(V.setFullPayAmount)} style="background:none;border:none;color:var(--gold);font-size:12px;font-weight:600;cursor:pointer;padding:0;font-family:'Hanken Grotesk',sans-serif;">[Lunasi Sisa]</button>
+      </div>
+    </div>
+    ` : `
+    <p style="font-size:13px;color:var(--muted);margin:0 0 22px;">Nominal ${rp(c.row.amount)} · hutang ke supplier</p>
+    `}
+
     <div style="display:flex;gap:10px;">
       <button ${A(V.closeConfirmPay)} style="flex:1;height:46px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
-      <button ${A(V.doConfirmPay)} style="flex:1;height:46px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.03em;cursor:pointer;">YA, SUDAH LUNAS</button>
+      <button ${A(V.doConfirmPay)} style="flex:1.2;height:46px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13.5px;letter-spacing:.03em;cursor:pointer;">${isRecv ? 'PROSES BAYAR' : 'YA, SUDAH LUNAS'}</button>
     </div>
+  </div>`;
+}
+
+function receivableHistHtml(V){
+  const r = V.receivableHist;
+  if (!r) return '';
+  const payments = r.payments || [];
+  return `
+  <div ${A(V.closeRecvHist)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:min(440px, calc(100vw - 32px));max-height:85dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;${V.popModal('receivableHist')}">
+    <div style="flex:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:19px;margin:0;">Riwayat Cicilan Piutang</h3>
+      <button ${A(V.closeRecvHist)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <p style="flex:none;font-size:13px;color:var(--muted);margin:0 0 14px;">Pelanggan: <b style="color:var(--text);">${esc(r.name)}</b> · Total Tagihan: <b>${rp(r.amount)}</b></p>
+
+    <div class="scrl" style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+      ${payments.length ? payments.map(p => `
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:10px 14px;">
+          <div>
+            <span style="display:block;font-size:11.5px;color:var(--muted);">${fmtDate(p.created_at)}</span>
+            <span style="display:block;font-size:12px;color:var(--ok);font-weight:600;margin-top:2px;">Pembayaran Cicilan</span>
+          </div>
+          <span style="font-family:'Saira',sans-serif;font-weight:800;font-size:15px;color:var(--ok);">${rp(p.amount)}</span>
+        </div>`).join('') : `<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">Belum ada catatan cicilan.</div>`}
+    </div>
+
+    <button ${A(V.closeRecvHist)} style="flex:none;width:100%;height:44px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Tutup</button>
   </div>`;
 }
 
@@ -2777,6 +2892,7 @@ function html(V){
     ${V.bxCatForm ? bxCatFormHtml(V) : ''}
     ${V.restockOpen ? restockHtml(V) : ''}
     ${V.confirmPay ? confirmPayHtml(V) : ''}
+    ${V.receivableHist ? receivableHistHtml(V) : ''}
     ${V.confirmDelete ? confirmDeleteHtml(V) : ''}
     ${V.toast ? toastHtml(V) : ''}
     ${customOverlayHtml(V)}
@@ -2795,7 +2911,7 @@ function render(){
   const openNow = { bell:S.bell, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
     poForm:S.poForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null,
-    branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, toast:!!S.toast };
+    branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, receivableHist:!!S.receivableHist, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
   V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;'; // modal tengah: keyframes menyertakan translate(-50%,-50%)

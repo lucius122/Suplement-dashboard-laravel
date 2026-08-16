@@ -40,8 +40,37 @@ class TransactionController extends Controller
     public function payReceivable(Request $request, Receivable $receivable)
     {
         $this->assertAdmin($request);
-        $receivable->update(['paid' => true]);
 
-        return response()->json(['ok' => true]);
+        $request->validate([
+            'amount' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $remaining = max(0, $receivable->amount - $receivable->paid_amount);
+
+        if ($remaining <= 0 || $receivable->paid) {
+            return response()->json(['ok' => true, 'paid' => true, 'remaining' => 0]);
+        }
+
+        $inputAmount = $request->input('amount');
+        $payAmount = ($inputAmount !== null && (int) $inputAmount > 0)
+            ? min((int) $inputAmount, $remaining)
+            : $remaining;
+
+        $receivable->payments()->create(['amount' => $payAmount]);
+
+        $newPaidAmount = $receivable->paid_amount + $payAmount;
+        $isPaid = $newPaidAmount >= $receivable->amount;
+
+        $receivable->update([
+            'paid_amount' => $newPaidAmount,
+            'paid' => $isPaid,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'paid' => $isPaid,
+            'paid_amount' => $newPaidAmount,
+            'remaining' => max(0, $receivable->amount - $newPaidAmount),
+        ]);
     }
 }

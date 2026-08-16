@@ -40,6 +40,60 @@
       // lambat (parse app.js + cek sesi /me), gampang lewat batas di mesin yang sibuk.
       step('login screen', await waitFor(() => has('Masuk ke Sistem'), 20000));
 
+      /* AUDIT SEMENTARA — ?e2e=1&audit=1 di lebar mobile: periksa layar ADMIN di
+         layar sempit (alur e2e mobile biasa hanya menyentuh kasir). Dihapus lagi. */
+      if (window.innerWidth < 900 && location.search.includes('audit=1')) {
+        const vw = window.innerWidth;
+        const audit = (label) => {
+          const el = appEl();
+          const nakal = [...el.querySelectorAll('*')].filter(n => {
+            const r = n.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && r.right > vw + 1;
+          }).slice(0, 4).map(n => n.tagName + '(' + Math.round(n.getBoundingClientRect().width) + 'px,kanan=' + Math.round(n.getBoundingClientRect().right) + ')');
+          out.push('AUDIT :: ' + label + ' | docW=' + document.documentElement.scrollWidth + '/' + vw
+            + ' appW=' + el.scrollWidth + ' | melimpah=' + nakal.length + (nakal.length ? ' -> ' + nakal.join(' ') : ''));
+        };
+        type('i-uname', 'admin'); type('i-pass', 'admin');
+        click(btn('MASUK'));
+        await waitFor(() => has('Mau ke mana?'), 20000);
+        click(btn('Buka Dashboard Admin'));
+        await waitFor(() => has('Pemasukan Hari Ini'));
+        audit('dashboard');
+
+        click(btn('Stok'));
+        await waitFor(() => has('Masuk terakhir'));
+        audit('stok (baris masuk terakhir)');
+
+        click(btn('Menu'));
+        await waitFor(() => has('Riwayat Stok'));
+        click(btn('Riwayat Stok'));
+        await waitFor(() => has('Barang masuk & keluar per bulan'));
+        await waitFor(() => !has('Memuat riwayat stok'), 10000);
+        audit('riwayat stok');
+
+        click(btn('Menu'));
+        await waitFor(() => has('Laporan Omset'));
+        click(btn('Laporan Omset'));
+        await waitFor(() => has('Penjualan per Anggota'));
+        audit('laporan (tabel anggota)');
+
+        const brBtn = [...appEl().querySelectorAll('button')].find(b => b.title === 'toggle-branch-menu');
+        click(brBtn);
+        await waitFor(() => has('Pilih Cabang'));
+        click(btn('Kelola Cabang'));
+        await waitFor(() => !!document.getElementById('i-newbranch'));
+        audit('modal kelola cabang');
+        // tombol TAMBAH & Tutup harus tetap terlihat tanpa menggulir modal
+        const inp = document.getElementById('i-newbranch');
+        const tutup = [...appEl().querySelectorAll('button')].find(b => b.textContent.trim() === 'Tutup');
+        out.push('AUDIT :: modal - isian & Tutup di dalam layar? '
+          + 'isianBawah=' + Math.round(inp.getBoundingClientRect().bottom)
+          + ' tutupBawah=' + (tutup ? Math.round(tutup.getBoundingClientRect().bottom) : 'n/a')
+          + ' tinggiLayar=' + window.innerHeight);
+        out.push('AUDIT :: errors=' + window.__errors.length);
+        finish(); return;
+      }
+
       if (window.innerWidth < 900) {
         /* ---- alur mobile: kasir login → layar kasir (modul kasir.js) muncul ---- */
         // Bagian kasir dikosongkan untuk tim kasir; yang diuji: login kasir sampai
@@ -136,13 +190,15 @@
 
       click(btn('Piutang'));
       step('piutang dari DB', await waitFor(() => has('Budi Santoso') && has('Rina Wijaya')));
-      const paidBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Tandai Lunas').length;
+      const paidBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Bayar / Cicil' || b.textContent.trim() === 'Tandai Lunas').length;
       const n0 = paidBtns();
       if (n0 > 0) {
-        click(btn('Tandai Lunas'));
-        step('modal konfirmasi lunas muncul', await waitFor(() => has('Konfirmasi Pelunasan')));
-        click(btn('YA, SUDAH LUNAS'));
-        step('tandai lunas tersimpan', await waitFor(() => has('Tagihan ditandai lunas') && paidBtns() === n0 - 1));
+        const b = [...appEl().querySelectorAll('button')].find(el => el.textContent.trim() === 'Bayar / Cicil' || el.textContent.trim() === 'Tandai Lunas');
+        click(b);
+        step('modal konfirmasi lunas muncul', await waitFor(() => has('Pembayaran / Cicilan Piutang') || has('Konfirmasi Pelunasan')));
+        const submitBtn = [...appEl().querySelectorAll('button')].find(el => el.textContent.trim() === 'PROSES BAYAR' || el.textContent.trim() === 'YA, SUDAH LUNAS');
+        click(submitBtn);
+        step('tandai lunas tersimpan', await waitFor(() => (has('Tagihan berhasil dilunasi') || has('Pembayaran cicilan berhasil dicatat') || has('Tagihan ditandai lunas'))));
       } else {
         out.push('SKIP :: tandai lunas (semua piutang sudah lunas — reset: php artisan migrate:fresh --seed)');
       }

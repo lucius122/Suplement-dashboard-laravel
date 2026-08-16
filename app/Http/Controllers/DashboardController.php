@@ -46,10 +46,17 @@ class DashboardController extends Controller
                     'masukTerakhir' => $m ? ['qty' => $m->qty, 'tanggal' => $m->created_at->toDateString()] : null,
                 ];
             }),
-            'receivables' => Receivable::with('branch')->orderByDesc('id')->get()->map(fn ($r) => [
+            'receivables' => Receivable::with(['branch', 'payments'])->orderByDesc('id')->get()->map(fn ($r) => [
                 'id' => $r->id, 'name' => $r->name, 'amount' => $r->amount,
+                'paid_amount' => $r->paid_amount,
+                'remaining' => max(0, $r->amount - $r->paid_amount),
                 'trx' => $r->trx_date->toDateString(), 'due' => $r->due_date->toDateString(),
                 'cabang' => $r->branch->name, 'paid' => $r->paid,
+                'payments' => $r->payments->map(fn ($p) => [
+                    'id' => $p->id,
+                    'amount' => $p->amount,
+                    'created_at' => $p->created_at->toDateTimeString(),
+                ]),
             ]),
             'users' => User::with('branch')->orderBy('id')->get()->map(fn ($u) => [
                 'id' => $u->id, 'name' => $u->name, 'uname' => $u->username,
@@ -296,7 +303,7 @@ class DashboardController extends Controller
         return response()->json($out);
     }
 
-    private function periodStart(string $period): \Illuminate\Support\Carbon
+    private function periodStart(string $period): \Carbon\CarbonInterface
     {
         return match ($period) {
             'Mingguan' => now()->subDays(6)->startOfDay(),
