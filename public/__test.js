@@ -265,7 +265,10 @@
       // stok: restock (+ Stok) → stok bertambah di server
       click(btn('Manajemen Stok'));
       step('kembali ke stok utk restock', await waitFor(() => !!([...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-')))));
-      const stokCellOf = t => { const m = (t.closest('div[style*="grid"], div[style*="border-radius"]')?.textContent || '').match(/(\d+) pcs/); return m ? parseInt(m[1]) : null; };
+      // Baca angka stok dari SEL tempat tombol "+ Stok" berada, bukan dari seluruh
+      // baris: baris juga memuat "Masuk terakhir: +N pcs", dan kalau itu ikut
+      // terbaca duluan, stokBefore jadi salah.
+      const stokCellOf = t => { const m = (t.closest('span')?.textContent || t.closest('div')?.textContent || '').match(/(\d+) pcs/); return m ? parseInt(m[1]) : null; };
       const rbtn = [...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('restok-'));
       const stokBefore = stokCellOf(rbtn);
       click(rbtn);
@@ -273,15 +276,38 @@
       type('i-restockqty', '5');
       click(btn('TAMBAHKAN'));
       step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
+      // "kapan & berapa" harus langsung terbaca di baris, tanpa membuka modal Riwayat
+      const MONID = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+      const kini = new Date();
+      const tglKini = kini.getDate() + ' ' + MONID[kini.getMonth()];
+      step('baris stok menampilkan masuk terakhir (+5 pcs & tanggal hari ini)',
+        await waitFor(() => has('Masuk terakhir: +5 pcs · ' + tglKini)));
 
-      // riwayat stok (track record): restock barusan harus muncul sbg mutasi "masuk"
+      // riwayat stok kini LAYAR sendiri (bukan pop-up). "Riwayat Stok" juga jadi item
+      // menu sidebar, jadi penanda layarnya dipakai subjudul yang unik.
       const prodNm = (rbtn.title || '').replace('restok-', '');
       const histBtn = () => [...appEl().querySelectorAll('button')].find(b => b.title === 'riwayat-' + prodNm);
+      const tBtn = k => [...appEl().querySelectorAll('button')].find(b => b.title === k);
       click(histBtn());
-      step('modal riwayat stok terbuka', await waitFor(() => has('Riwayat Stok')));
-      step('restock tercatat di riwayat (+5 masuk)', await waitFor(() => has('Restock') && has('Masuk') && has('+5')));
-      click(btn('Tutup'));
-      step('modal riwayat tertutup', await waitFor(() => !has('Riwayat Stok')));
+      step('layar riwayat stok terbuka (bukan modal)', await waitFor(() => has('Barang masuk & keluar per bulan')));
+      step('disaring ke produk yang diklik', await waitFor(() => has(prodNm) && !!tBtn('hapus-filter-produk')));
+      step('restock barusan tampil sbg mutasi masuk (+5)', await waitFor(() => has('Restock') && has('+5')));
+      step('ringkasan total masuk terisi', has('Total Masuk') && has('Total Keluar'));
+
+      // filter jenis: pilih "Keluar" → mutasi masuk tadi harus hilang dari daftar
+      click(tBtn('jenis-keluar'));
+      step('filter jenis Keluar menyembunyikan mutasi masuk', await waitFor(() => !has('Restock')));
+      click(tBtn('jenis-masuk'));
+      step('filter jenis Masuk memunculkannya lagi', await waitFor(() => has('Restock') && has('+5')));
+
+      // pindah bulan: bulan lalu tidak boleh memuat restock barusan
+      click(tBtn('bulan-sebelumnya'));
+      step('pindah ke bulan sebelumnya', await waitFor(() => !has('Restock')));
+      click(tBtn('bulan-berikutnya'));
+      step('kembali ke bulan ini', await waitFor(() => has('Restock')));
+
+      click(tBtn('hapus-filter-produk'));
+      step('filter produk dilepas → riwayat semua barang', await waitFor(() => !tBtn('hapus-filter-produk')));
 
       // supplier: buat PO baru lalu tandai lunas
       click(btn('Pembelian'));

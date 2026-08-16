@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Receivable;
+use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
@@ -17,15 +18,34 @@ class DashboardController extends Controller
 {
     public function bootstrap()
     {
+        // Stok masuk TERAKHIR per produk, untuk ditampilkan langsung di baris
+        // Manajemen Stok ("kapan & berapa" tanpa perlu membuka riwayat satu per satu).
+        // Dua query datar, BUKAN N+1: ambil id terakhir per produk, lalu barisnya.
+        // Dipakai MAX(id), bukan MAX(created_at): id monotonik, jadi dua restock
+        // pada detik yang sama tetap punya pemenang yang pasti.
+        $idMasukTerakhir = StockMovement::where('type', 'masuk')
+            ->groupBy('product_id')
+            ->selectRaw('MAX(id) as id')
+            ->pluck('id');
+        $masukTerakhir = StockMovement::whereIn('id', $idMasukTerakhir)
+            ->get(['id', 'product_id', 'qty', 'created_at'])
+            ->keyBy('product_id');
+
         return response()->json([
             'branches' => Branch::orderBy('id')->get(['id', 'name']),
             'categories' => Category::orderBy('id')->get(['id', 'name']),
-            'products' => Product::with('branch')->orderBy('id')->get()->map(fn ($p) => [
-                'id' => $p->id, 'name' => $p->name, 'varian' => $p->varian,
-                'harga' => $p->harga, 'modal' => $p->modal, 'kategori' => $p->kategori,
-                'stok' => $p->stok,
-                'cabang' => $p->branch->name, 'photo' => $p->photo, 'custom' => $p->custom,
-            ]),
+            'products' => Product::with('branch')->orderBy('id')->get()->map(function ($p) use ($masukTerakhir) {
+                $m = $masukTerakhir->get($p->id);
+
+                return [
+                    'id' => $p->id, 'name' => $p->name, 'varian' => $p->varian,
+                    'harga' => $p->harga, 'modal' => $p->modal, 'kategori' => $p->kategori,
+                    'stok' => $p->stok,
+                    'cabang' => $p->branch->name, 'photo' => $p->photo, 'custom' => $p->custom,
+                    // null = produk ini belum pernah kemasukan stok sama sekali
+                    'masukTerakhir' => $m ? ['qty' => $m->qty, 'tanggal' => $m->created_at->toDateString()] : null,
+                ];
+            }),
             'receivables' => Receivable::with('branch')->orderByDesc('id')->get()->map(fn ($r) => [
                 'id' => $r->id, 'name' => $r->name, 'amount' => $r->amount,
                 'trx' => $r->trx_date->toDateString(), 'due' => $r->due_date->toDateString(),
@@ -323,6 +343,64 @@ class DashboardController extends Controller
             'items' => $items,
             'omset' => (int) $ringkas->omset,
             'trx' => (int) $ringkas->trx,
+        ]);
+    }
+
+    public function stockMovements(Request $request)
+    {
+        // Riwayat mutasi stok SATU BULAN untuk seluruh produk — layar "Riwayat Stok".
+        // Menggantikan modal riwayat per-produk yang lama; filter produk dipertahankan
+        // supaya tombol "Riwayat" di baris stok tetap bisa menyorot satu barang.
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'month' => ['required', 'regex:/^\d{4}-\d{2}$/'],  // YYYY-MM
+            'type' => ['nullable', Rule::in(['semua', 'masuk', 'keluar'])],
+            'branch' => ['nullable', 'string'],
+            'product' => ['nullable', 'integer', 'exists:products,id'],
+        ]);
+
+        [$th, $bl] = array_map('intval', explode('-', $data['month']));
+        $awal = \Illuminate\Support\Carbon::create($th, $bl, 1)->startOfMonth();
+        $akhir = (clone $awal)->endOfMonth();
+
+        $cabang = ($data['branch'] ?? 'Semua') !== 'Semua' ? $data['branch'] : null;
+        $branchId = $cabang ? Branch::where('name', $cabang)->value('id') : null;
+        $jenis = $data['type'] ?? 'semua';
+
+        $dasar = fn () => StockMovement::whereBetween('stock_movements.created_at', [$awal, $akhir])
+            ->when($branchId, fn ($q) => $q->where('stock_movements.branch_id', $branchId))
+            ->when(! empty($data['product']), fn ($q) => $q->where('stock_movements.product_id', $data['product']));
+
+        // Ringkasan dihitung dari SELURUH baris bulan itu (tidak terpengaruh limit
+        // maupun filter jenis) supaya angka masuk/keluar tetap jujur saat daftar dipotong.
+        $ringkas = $dasar()
+            ->selectRaw("COALESCE(SUM(CASE WHEN type = 'masuk' THEN qty ELSE 0 END),0) as masuk")
+            ->selectRaw("COALESCE(SUM(CASE WHEN type = 'keluar' THEN qty ELSE 0 END),0) as keluar")
+            ->first();
+
+        $rows = $dasar()
+            ->when($jenis !== 'semua', fn ($q) => $q->where('stock_movements.type', $jenis))
+            ->with(['product:id,name,varian', 'user:id,name', 'branch:id,name'])
+            ->orderByDesc('stock_movements.id')
+            ->limit(300)   // pola batas yang sama dengan productMovements
+            ->get()
+            ->map(fn ($m) => [
+                'id' => $m->id,
+                'tanggal' => $m->created_at->toDateTimeString(),
+                'produk' => $m->product ? $m->product->name.' · '.$m->product->varian : '(produk terhapus)',
+                'type' => $m->type,
+                'qty' => $m->qty,
+                'note' => $m->note,
+                'nota' => $m->transaction_id,
+                'oleh' => $m->user?->name,
+                'cabang' => $m->branch?->name,
+            ]);
+
+        return response()->json([
+            'month' => $data['month'],
+            'rows' => $rows,
+            'masuk' => (int) $ringkas->masuk,
+            'keluar' => (int) $ringkas->keluar,
         ]);
     }
 

@@ -27,6 +27,7 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'dashboard']);
     Route::get('/dashboard/yearly', [DashboardController::class, 'dashboardYearly']);
     Route::get('/sales-by-date', [DashboardController::class, 'salesByDate']);
+    Route::get('/stock-movements', [DashboardController::class, 'stockMovements']); // layar Riwayat Stok
     Route::get('/sales-by-user', [DashboardController::class, 'salesByUser']);
     Route::get('/sales-by-user/{username}/items', [DashboardController::class, 'salesByUserItems']);
 

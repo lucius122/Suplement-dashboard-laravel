@@ -34,6 +34,12 @@ class StockMovement extends Model
         return $this->belongsTo(User::class);
     }
 
+    // Dipakai layar Riwayat Stok saat cabang "Semua": tiap baris menyebut cabangnya.
+    public function branch()
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     /**
      * Satu-satunya jalan mencatat mutasi — memastikan branch_id ikut terisi
      * (kolom denormalisasi, gampang terlupa kalau di-insert manual di tiap pemanggil).
