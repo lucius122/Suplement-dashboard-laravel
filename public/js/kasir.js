@@ -560,10 +560,10 @@
       +'display:flex;flex-direction:column;cursor:pointer;user-select:none;">'
       +(p.photo
         ? '<img src="'+SS.esc(p.photo)+'" alt="'+SS.esc(p.name)+'" '
-            +'style="width:100%;height:94px;object-fit:cover;display:block;" '
+            +'style="width:100%;aspect-ratio:1/1;object-fit:cover;display:block;" '
             +'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
         : '')
-      +'<div style="width:100%;height:94px;background:var(--goldtint);display:'+(p.photo?'none':'flex')
+      +'<div style="width:100%;aspect-ratio:1/1;background:var(--goldtint);display:'+(p.photo?'none':'flex')
         +';align-items:center;justify-content:center;">'+SS.ic('produk','var(--gold)',28)+'</div>'
       +'<div style="padding:9px 10px 10px;flex:1;display:flex;flex-direction:column;gap:3px;">'
         +'<div style="font-size:12px;font-weight:600;line-height:1.3;'
