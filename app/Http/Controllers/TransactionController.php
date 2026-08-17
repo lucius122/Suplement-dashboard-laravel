@@ -24,6 +24,9 @@ class TransactionController extends Controller
             // Kasir boleh menurunkan harga (diskon). Batas atasnya tidak bisa
             // dicek di sini — perlu harga DB — jadi dijaga di PenjualanService.
             'items.*.price'          => ['required', 'integer', 'min:1'],
+            // alasan harga khusus (notula §3). Nullable di sini; kewajibannya
+            // ditegakkan di layar kasir, yang tahu apakah harganya benar berubah.
+            'items.*.note'           => ['nullable', 'string', 'max:200'],
             'method'                 => ['required', Rule::in(['tunai', 'marketplace', 'tempo'])],
             'cash'                   => ['nullable', 'integer', 'min:0'],
             'customer_name'          => ['required_if:method,tempo', 'nullable', 'string', 'max:100'],
@@ -35,6 +38,20 @@ class TransactionController extends Controller
 
         // trx_id dipakai frontend kasir untuk mencetak nomor nota
         return response()->json(['ok' => true, 'trx_id' => $trx->id]);
+    }
+
+    public function updateReceivableNote(Request $request, Receivable $receivable)
+    {
+        // Catatan transaksi tempo (notula §5). Hanya catatan yang bisa diubah dari
+        // sini — nominal, jatuh tempo, dan status lunas SENGAJA tidak, supaya
+        // riwayat uangnya tidak bisa disunting lewat pintu belakang.
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:300'],
+        ]);
+        $receivable->update(['note' => trim($data['note'] ?? '') ?: null]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function payReceivable(Request $request, Receivable $receivable)

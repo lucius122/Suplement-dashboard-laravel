@@ -124,6 +124,40 @@ class PenjualanServiceTest extends TestCase
         $this->assertSame(0, \App\Models\Transaction::count());
     }
 
+    /**
+     * Notula §3: alasan harga khusus wajib bisa diaudit admin. Sebelum ini alasan
+     * yang diketik kasir berhenti di keranjang dan hilang saat transaksi disimpan.
+     */
+    public function test_alasan_harga_khusus_tersimpan_bersama_itemnya(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 5);
+
+        $this->actingAs($kasir)->postJson('/api/transactions', [
+            'items' => [['product_id' => $produk->id, 'qty' => 2, 'price' => 90000, 'note' => 'Harga reseller']],
+            'method' => 'tunai', 'cash' => 200000,
+        ])->assertOk();
+
+        $item = \App\Models\TransactionItem::first();
+        $this->assertSame('Harga reseller', $item->note);
+        $this->assertSame(90000, (int) $item->price, 'harga khusus ikut tersimpan apa adanya');
+    }
+
+    public function test_item_harga_normal_tidak_menyimpan_alasan(): void
+    {
+        $kasir = $this->buatKasir();
+        $produk = $this->buatProduk($kasir->branch_id, harga: 100000, stok: 5);
+
+        // note dikirim kosong (harga normal) → disimpan null, bukan string kosong,
+        // supaya panel audit tidak dipenuhi baris tanpa alasan.
+        $this->actingAs($kasir)->postJson('/api/transactions', [
+            'items' => [['product_id' => $produk->id, 'qty' => 1, 'price' => 100000, 'note' => '  ']],
+            'method' => 'tunai', 'cash' => 100000,
+        ])->assertOk();
+
+        $this->assertNull(\App\Models\TransactionItem::first()->note);
+    }
+
     public function test_stok_dipotong_dan_mutasi_keluar_tercatat(): void
     {
         $kasir = $this->buatKasir();

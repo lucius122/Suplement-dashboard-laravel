@@ -40,60 +40,6 @@
       // lambat (parse app.js + cek sesi /me), gampang lewat batas di mesin yang sibuk.
       step('login screen', await waitFor(() => has('Masuk ke Sistem'), 20000));
 
-      /* AUDIT SEMENTARA — ?e2e=1&audit=1 di lebar mobile: periksa layar ADMIN di
-         layar sempit (alur e2e mobile biasa hanya menyentuh kasir). Dihapus lagi. */
-      if (window.innerWidth < 900 && location.search.includes('audit=1')) {
-        const vw = window.innerWidth;
-        const audit = (label) => {
-          const el = appEl();
-          const nakal = [...el.querySelectorAll('*')].filter(n => {
-            const r = n.getBoundingClientRect();
-            return r.width > 0 && r.height > 0 && r.right > vw + 1;
-          }).slice(0, 4).map(n => n.tagName + '(' + Math.round(n.getBoundingClientRect().width) + 'px,kanan=' + Math.round(n.getBoundingClientRect().right) + ')');
-          out.push('AUDIT :: ' + label + ' | docW=' + document.documentElement.scrollWidth + '/' + vw
-            + ' appW=' + el.scrollWidth + ' | melimpah=' + nakal.length + (nakal.length ? ' -> ' + nakal.join(' ') : ''));
-        };
-        type('i-uname', 'admin'); type('i-pass', 'admin');
-        click(btn('MASUK'));
-        await waitFor(() => has('Mau ke mana?'), 20000);
-        click(btn('Buka Dashboard Admin'));
-        await waitFor(() => has('Pemasukan Hari Ini'));
-        audit('dashboard');
-
-        click(btn('Stok'));
-        await waitFor(() => has('Masuk terakhir'));
-        audit('stok (baris masuk terakhir)');
-
-        click(btn('Menu'));
-        await waitFor(() => has('Riwayat Stok'));
-        click(btn('Riwayat Stok'));
-        await waitFor(() => has('Barang masuk & keluar per bulan'));
-        await waitFor(() => !has('Memuat riwayat stok'), 10000);
-        audit('riwayat stok');
-
-        click(btn('Menu'));
-        await waitFor(() => has('Laporan Omset'));
-        click(btn('Laporan Omset'));
-        await waitFor(() => has('Penjualan per Anggota'));
-        audit('laporan (tabel anggota)');
-
-        const brBtn = [...appEl().querySelectorAll('button')].find(b => b.title === 'toggle-branch-menu');
-        click(brBtn);
-        await waitFor(() => has('Pilih Cabang'));
-        click(btn('Kelola Cabang'));
-        await waitFor(() => !!document.getElementById('i-newbranch'));
-        audit('modal kelola cabang');
-        // tombol TAMBAH & Tutup harus tetap terlihat tanpa menggulir modal
-        const inp = document.getElementById('i-newbranch');
-        const tutup = [...appEl().querySelectorAll('button')].find(b => b.textContent.trim() === 'Tutup');
-        out.push('AUDIT :: modal - isian & Tutup di dalam layar? '
-          + 'isianBawah=' + Math.round(inp.getBoundingClientRect().bottom)
-          + ' tutupBawah=' + (tutup ? Math.round(tutup.getBoundingClientRect().bottom) : 'n/a')
-          + ' tinggiLayar=' + window.innerHeight);
-        out.push('AUDIT :: errors=' + window.__errors.length);
-        finish(); return;
-      }
-
       if (window.innerWidth < 900) {
         /* ---- alur mobile: kasir login → layar kasir (modul kasir.js) muncul ---- */
         // Bagian kasir dikosongkan untuk tim kasir; yang diuji: login kasir sampai
@@ -190,6 +136,21 @@
 
       click(btn('Piutang'));
       step('piutang dari DB', await waitFor(() => has('Budi Santoso') && has('Rina Wijaya')));
+
+      // catatan transaksi tempo (notula §5) — disunting dari dashboard, tersimpan ke DB
+      const noteBtn = () => [...appEl().querySelectorAll('button')].find(b => (b.title||'').startsWith('catatan-'));
+      const catatan = 'Ambil dulu E2E ' + String(Date.now()).slice(-5);
+      click(noteBtn());
+      step('modal catatan piutang terbuka', await waitFor(() => !!document.getElementById('i-recvnote')));
+      type('i-recvnote', catatan);
+      click(btn('SIMPAN CATATAN'));
+      step('catatan tersimpan & tampil di baris', await waitFor(() => has('Catatan piutang tersimpan') && has(catatan)));
+      // dikosongkan lagi supaya data demo tidak menumpuk jejak tes
+      click(noteBtn());
+      step('modal catatan terbuka terisi', await waitFor(() => document.getElementById('i-recvnote')?.value === catatan));
+      type('i-recvnote', '');
+      click(btn('SIMPAN CATATAN'));
+      step('catatan dikosongkan → kembali "+ catatan"', await waitFor(() => !has(catatan)));
       const paidBtns = () => [...appEl().querySelectorAll('button')].filter(b => b.textContent.trim() === 'Bayar / Cicil' || b.textContent.trim() === 'Tandai Lunas').length;
       const n0 = paidBtns();
       if (n0 > 0) {
@@ -286,8 +247,39 @@
       step('panel penjualan per tanggal ada', has('Penjualan per Tanggal'));
       click(document.getElementById('custom-trig-saldate'));
       step('date picker laporan terbuka', await waitFor(() => has('Pilih Hari Ini')));
-      click(btn('Pilih Hari Ini'));
+      // Pilih KEMARIN, bukan hari ini: seeder mengisi 6 minggu terakhir dengan padat,
+      // sedangkan "hari ini" kerap kosong di mesin dev — dan tanggal kosong membuat
+      // uji filter petugas di bawah ter-skip diam-diam (fitur jadi tak terbukti).
+      const kmr = new Date(Date.now() - 86400000);
+      const dpPanel = () => document.getElementById('custom-portal-panel');
+      const dpDay = d => [...(dpPanel()?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === String(d));
+      const selKemarin = kmr.getMonth() === new Date().getMonth() ? dpDay(kmr.getDate()) : null;
+      if (selKemarin) click(selKemarin); else click(btn('Pilih Hari Ini'));
       step('rincian per tanggal termuat', await waitFor(() => has('Omset Hari Itu') || has('Tidak ada penjualan pada tanggal ini')));
+
+      // filter petugas (notula §6: laporan disortir per tanggal DAN admin/kasir bertugas).
+      // Omset dibaca lewat regex berpola "Omset Hari Itu Rp..." supaya tidak tertukar
+      // dengan angka lain di layar Laporan.
+      const omsetHariItu = () => (appEl().textContent.match(/Omset Hari Itu\s*(Rp[\d.]+)/) || [])[1] || null;
+      const petugasBtns = () => [...appEl().querySelectorAll('button')].filter(b => (b.title||'').startsWith('petugas-'));
+      if (petugasBtns().length > 1) {
+        const omsetSemua = omsetHariItu();
+        const satu = petugasBtns().find(b => b.title !== 'petugas-Semua');
+        const unameSatu = satu.title;
+        step('chip petugas muncul (Semua + tiap petugas)', petugasBtns().length > 1 && !!petugasBtns().find(b => b.title === 'petugas-Semua'));
+        click(satu);
+        // tersaring: omset berubah, ATAU memang cuma dia yang jualan hari itu (nilai sama),
+        // ATAU dia tak punya penjualan pada cabang terpilih
+        step('rincian tersaring ke satu petugas', await waitFor(() => {
+          const o = omsetHariItu();
+          return (o !== null && o !== omsetSemua) || has('oleh petugas ini pada tanggal itu') || petugasBtns().length === 2;
+        }));
+        click(petugasBtns().find(b => b.title === 'petugas-Semua'));
+        step('kembali ke Semua petugas → omset semula', await waitFor(() => omsetHariItu() === omsetSemua));
+        step('chip petugas dipertahankan setelah kembali', !!petugasBtns().find(b => b.title === unameSatu));
+      } else {
+        out.push('SKIP :: filter petugas (tanggal terpilih tidak punya transaksi)');
+      }
 
       // panah pilih tahun: mundur satu tahun, data ikut termuat, hanya tahun itu yang di-cache (bukan semua tahun)
       const prevYearBtn = () => appEl().querySelector('button[title="tahun-sebelumnya"]');
@@ -364,6 +356,18 @@
 
       click(tBtn('hapus-filter-produk'));
       step('filter produk dilepas → riwayat semua barang', await waitFor(() => !tBtn('hapus-filter-produk')));
+
+      // layar Shopee: bukan lagi "Segera Hadir", tapi rekap penjualan marketplace
+      click(btn('Integrasi Shopee'));
+      step('layar marketplace terbuka', await waitFor(() => has('Penjualan Marketplace') && !has('Segera Hadir')));
+      step('kartu ringkasan marketplace tampil', await waitFor(() => has('Omset Marketplace') && has('Jumlah Transaksi') && has('Porsi')));
+      step('rekap termuat (isi atau kosong)', await waitFor(() => !has('Memuat penjualan marketplace')));
+      const mpBulan = () => (appEl().textContent.match(/(Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des) \d{4}/) || [])[0] || null;
+      const mpBulanAwal = mpBulan();
+      click(tBtn('mp-bulan-sebelumnya'));
+      step('bulan marketplace bergeser mundur', await waitFor(() => mpBulan() !== null && mpBulan() !== mpBulanAwal));
+      click(tBtn('mp-bulan-berikutnya'));
+      step('bulan marketplace kembali ke semula', await waitFor(() => mpBulan() === mpBulanAwal));
 
       // supplier: buat PO baru lalu tandai lunas
       click(btn('Pembelian'));

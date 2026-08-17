@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * @property int $id
  * @property string $name
+ * @property string|null $note
  * @property int $amount
  * @property int $paid_amount
  * @property \Illuminate\Support\Carbon $trx_date
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Receivable extends Model
 {
-    protected $fillable = ['name', 'amount', 'paid_amount', 'trx_date', 'due_date', 'paid', 'branch_id', 'transaction_id'];
+    protected $fillable = ['name', 'note', 'amount', 'paid_amount', 'trx_date', 'due_date', 'paid', 'branch_id', 'transaction_id'];
 
     protected $casts = [
         'paid' => 'boolean',

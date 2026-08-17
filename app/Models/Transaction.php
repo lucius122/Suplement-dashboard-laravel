@@ -27,4 +27,10 @@ class Transaction extends Model
     {
         return $this->belongsTo(Branch::class);
     }
+
+    // Dipakai rekap Marketplace/Shopee: tiap baris menyebut siapa yang mencatat.
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 }

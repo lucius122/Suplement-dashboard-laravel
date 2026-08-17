@@ -118,6 +118,8 @@ class PenjualanService
                 'qty'            => $item['qty'],
                 // harga yang BENAR-BENAR dipakai kasir, bukan harga normal DB
                 'price'          => $item['price'],
+                // alasan harga khusus; null kalau harganya normal
+                'note'           => trim($item['note'] ?? '') ?: null,
             ]);
 
             // pakai baris yang sama yang sudah dikunci & divalidasi di atas

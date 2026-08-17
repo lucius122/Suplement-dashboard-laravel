@@ -94,7 +94,9 @@ let S = {
   // Layar Riwayat Stok (menggantikan modal lama). mvMonth = 'YYYY-MM',
   // mvProduct null = semua produk. mvData null = sedang dimuat.
   mvMonth: new Date().toISOString().slice(0,7), mvType:'semua', mvProduct:null, mvProductName:'', mvData:null,
-  salesDate:'', salesDateData:null,                         // laporan penjualan per tanggal ('' = belum dipilih, data null = memuat)
+  mpMonth: new Date().toISOString().slice(0,7), mpData:null,   // layar Shopee: rekap marketplace per bulan
+  noteRecvId:null, noteText:'',                             // modal catatan piutang (null = tutup)
+  salesDate:'', salesUser:'Semua', salesDateData:null,      // laporan penjualan per tanggal ('' = belum dipilih, data null = memuat); salesUser = filter petugas
   biayaForm:false, bxCategory:'Sewa', bxNote:'', bxAmount:'', bxBranch:'', bxRecurring:false, bxDueDay:'', bxDate:'', // form Biaya Operasional
   bxCatForm:false, newBxCat:'', editBxCatId:null,           // modal Kelola Kategori Biaya
   editExpenseId:null,                                       // null = form Catat Biaya mode tambah
@@ -154,6 +156,7 @@ const go = s => () => {
   setState({ screen:s, more:false, bell:false, navOpen:false, memberDropdown:false,
     ...(s==='riwayat' ? { mvProduct:null, mvProductName:'', mvData:null } : {}) });
   if(s==='riwayat') loadStockMovements();
+  if(s==='shopee') loadMarketplace();
 };
 
 let toastT;
@@ -440,13 +443,48 @@ async function deleteExpense(x){
 
 // laporan penjualan pada satu tanggal (barang apa yang laku hari itu) — on-demand,
 // ikut cabang yang sedang dipilih di topbar.
-async function loadSalesByDate(tanggal){
-  if(!tanggal) return;
-  setState({ salesDate:tanggal, salesDateData:null });
+/* ---- Layar Shopee: rekap penjualan marketplace ----
+   Tidak di-cache: transaksi marketplace bisa masuk kapan saja. */
+async function loadMarketplace(){
+  const kunci = S.mpMonth+'|'+S.branch;
+  setState({ mpData:null });
   try {
-    const r = await api('/api/sales-by-date?date=' + encodeURIComponent(tanggal) + '&branch=' + encodeURIComponent(S.branch));
-    if(S.salesDate === tanggal) setState({ salesDateData:r });   // abaikan kalau user sudah ganti tanggal
-  } catch(e){ setState({ salesDate:'', salesDateData:null }); flash(e.message); }
+    const r = await api('/api/marketplace-sales?month='+encodeURIComponent(S.mpMonth)+'&branch='+encodeURIComponent(S.branch));
+    if(kunci === S.mpMonth+'|'+S.branch) setState({ mpData:r });
+  } catch(e){ setState({ mpData:{rows:[],omset:0,trx:0,omsetSemuaMetode:0} }); flash(e.message); }
+}
+function shiftMpMonth(delta){
+  const [y,m] = S.mpMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  setState({ mpMonth: d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0') });
+  loadMarketplace();
+}
+
+// Catatan transaksi tempo (notula §5). Hanya catatan yang bisa disunting dari
+// dashboard — nominal & jatuh tempo tidak, supaya jejak uangnya tetap utuh.
+async function saveRecvNote(){
+  const id = S.noteRecvId;
+  if(id === null) return;
+  try {
+    await api('/api/receivables/'+id+'/note', 'PATCH', { note: S.noteText.trim() || null });
+    setState({ noteRecvId:null, noteText:'' });
+    await loadAll();
+    flash('Catatan piutang tersimpan');
+  } catch(e) { flash(e.message); }
+}
+
+async function loadSalesByDate(tanggal, petugas){
+  if(!tanggal) return;
+  // Ganti tanggal me-reset filter petugas: daftar petugas hari itu belum tentu sama,
+  // dan menyisakan filter lama diam-diam menampilkan "kosong" yang membingungkan.
+  const uname = petugas === undefined ? 'Semua' : petugas;
+  setState({ salesDate:tanggal, salesUser:uname, salesDateData:null });
+  try {
+    const r = await api('/api/sales-by-date?date=' + encodeURIComponent(tanggal)
+      + '&branch=' + encodeURIComponent(S.branch) + '&user=' + encodeURIComponent(uname));
+    // abaikan balasan basi kalau user sudah ganti tanggal/petugas lagi
+    if(S.salesDate === tanggal && S.salesUser === uname) setState({ salesDateData:r });
+  } catch(e){ setState({ salesDate:'', salesUser:'Semua', salesDateData:null }); flash(e.message); }
 }
 
 /* ---- notifikasi jatuh tempo di taskbar/low bar desktop (Web Notification API) ----
@@ -800,6 +838,8 @@ function renderVals(){
       notPaid: !r.paid,
       onPaid,
       onHistory,
+      note: r.note || '',
+      onNote: ()=>setState({ noteRecvId:r.id, noteText:r.note || '' }),
       statusBadgeHtml: receivableStatusBadge(item),
       actionHtml: markPaidBtnHtml(item, false),
       actionMobileHtml: markPaidBtnHtml(item, true),
@@ -1100,7 +1140,8 @@ function renderVals(){
       bg: branch===b ? 'var(--goldtint)' : 'transparent',
       fw: branch===b ? '700' : '500',
       onClick: ()=>{ setState({branch:b, branchMenu:false});
-        if(S.screen==='riwayat') loadStockMovements(); },   // endpoint riwayat menyaring per cabang
+        if(S.screen==='riwayat') loadStockMovements();
+        if(S.screen==='shopee') loadMarketplace(); },   // kedua endpoint menyaring per cabang
     })),
     branchForm:S.branchForm, newBranch:S.newBranch,
     branchFormIsEdit: S.editBranchId !== null,
@@ -1116,6 +1157,29 @@ function renderVals(){
     branchRows: DB.branches.map(b=>({ id:b.id, name:b.name, onEdit:()=>editBranch(b) })),
 
     piutangRows, pfChips, pq:S.pq, onPQ:(e)=>setState({pq:e.target.value}), piutangEmpty:piutangRows.length===0, piutangTotalText:rp(piutangTotal),
+    // ---- layar Shopee: rekap marketplace ----
+    mpMonthText: (()=>{ const [y,m]=S.mpMonth.split('-').map(Number); return MON[m-1]+' '+y; })(),
+    mpPrevMonth: ()=>shiftMpMonth(-1),
+    mpNextMonth: S.mpMonth < new Date().toISOString().slice(0,7) ? ()=>shiftMpMonth(1) : null,
+    mpLoading: S.mpData===null,
+    mpRows: ((S.mpData||{}).rows||[]).map(t=>({
+      nota:'#'+t.id, tanggalText: fmtDate(t.tanggal)+' '+String(t.tanggal).slice(11,16),
+      totalText: rp(t.total), cabang:t.cabang||'-', oleh:t.oleh||'-',
+      barang: (t.items||[]).map(i=>i.nama+' ×'+i.qty).join(', ') || '-' })),
+    mpEmpty: S.mpData!==null && (((S.mpData||{}).rows)||[]).length===0,
+    mpOmsetText: rp((S.mpData||{}).omset||0),
+    mpTrxText: ((S.mpData||{}).trx||0)+' transaksi',
+    // Porsi terhadap seluruh metode — supaya angkanya punya pembanding, bukan menggantung.
+    mpPorsiText: (()=>{ const d=S.mpData||{}; const all=d.omsetSemuaMetode||0;
+      return all>0 ? Math.round((d.omset||0)/all*100)+'% dari omset '+((S.branch==='Semua')?'semua cabang':S.branch) : '—'; })(),
+    mpTruncated: (((S.mpData||{}).rows)||[]).length >= 200,
+
+    // modal catatan piutang
+    recvNoteOpen: S.noteRecvId!==null,
+    recvNoteName: (recvBranch.find(r=>r.id===S.noteRecvId)||{}).name || '',
+    noteText:S.noteText, onNoteText:(e)=>setState({noteText:e.target.value}),
+    closeRecvNote: ()=>setState({noteRecvId:null, noteText:''}),
+    saveRecvNote: ()=>saveRecvNote(),
     tempoRows, tempoEmpty:tempoRows.length===0,
     stokRows, catChips, stokEmpty:stokRows.length===0,
     // ---- layar Riwayat Stok ----
@@ -1188,6 +1252,20 @@ function renderVals(){
     salesDateTrx: ((S.salesDateData||{}).trx || 0) + ' transaksi',
     salesDateRows: ((S.salesDateData||{}).items || []).map(r=>({
       name:r.name, varian:r.varian, qtyText:r.qty+' pcs', totalText:rp(r.total) })),
+    // Filter petugas: hanya nama yang benar-benar bertransaksi pada tanggal itu,
+    // supaya tidak ada pilihan yang pasti kosong.
+    salesUser:S.salesUser,
+    // audit harga khusus pada tanggal terpilih (notula §3)
+    hargaKhususRows: (((S.salesDateData||{}).hargaKhusus)||[]).map(h=>({
+      nota:'#'+h.nota, produk:h.produk, qtyText:h.qty+' pcs',
+      hargaText:rp(h.harga), normalText:rp(h.hargaNormal),
+      selisihText:(h.selisih>0?'−':'+')+rp(Math.abs(h.selisih)).replace('Rp',''),
+      turun:h.selisih>0, note:h.note||'-', oleh:h.oleh||'-' })),
+    hargaKhususAda: (((S.salesDateData||{}).hargaKhusus)||[]).length > 0,
+    salesUserChips: [{uname:'Semua', label:'Semua petugas'}]
+      .concat(((S.salesDateData||{}).petugas || []).map(u=>({ uname:u.uname, label:u.name+' · '+u.trx+'×' })))
+      .map(u=>({ label:u.label, uname:u.uname, ...chip(S.salesUser===u.uname),
+        onClick:()=>loadSalesByDate(S.salesDate, u.uname) })),
 
     lapBars, lapTotalText:rp(lapTotal), lapMethods, periodChips, branchCompare, period:S.period,
     lapLoading, selYearText:String(S.selYear), onPrevYear, onNextYear,
@@ -1786,7 +1864,10 @@ function secPiutangHtml(V){
         </div>
         ${V.piutangRows.map(r => `
           <div style="display:grid;grid-template-columns:2fr 1.4fr 1fr 1fr 1.3fr 1.5fr;padding:15px 18px;border-bottom:1px solid var(--divider);align-items:center;font-size:13.5px;">
-            <span style="font-weight:600;">${esc(r.name)}</span>
+            <span style="font-weight:600;min-width:0;">
+              ${esc(r.name)}
+              <button ${A(r.onNote)} title="catatan-${esc(r.name)}" style="display:block;margin-top:3px;background:none;border:none;padding:0;text-align:left;cursor:pointer;font-size:11.5px;font-family:'Hanken Grotesk',sans-serif;color:${r.note?'var(--text2)':'var(--dim2)'};font-style:${r.note?'italic':'normal'};max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.note ? esc(r.note) : '+ catatan'}</button>
+            </span>
             <div>
               <div style="font-family:'Saira',sans-serif;font-weight:700;">${r.amountText}</div>
               ${r.paidAmt > 0 && r.notPaid ? `<div style="font-size:11.5px;color:var(--muted);margin-top:1px;">Sisa: <span style="color:var(--danger);font-weight:700;font-family:'Saira',sans-serif;">${r.remainingText}</span></div>` : ''}
@@ -1809,6 +1890,7 @@ function secPiutangHtml(V){
               ${r.paidAmt > 0 && r.notPaid ? `<div style="font-size:12px;color:var(--muted);">Sisa: <b style="color:var(--danger);font-family:'Saira',sans-serif;font-size:14px;">${r.remainingText}</b></div>` : ''}
             </div>
             <div style="font-size:12px;color:var(--muted);margin-top:5px;">Transaksi ${r.trxText} · Tempo ${r.dueText}</div>
+            <button ${A(r.onNote)} title="catatan-${esc(r.name)}" style="display:block;width:100%;margin-top:6px;background:none;border:none;padding:0;text-align:left;cursor:pointer;font-size:12px;font-family:'Hanken Grotesk',sans-serif;color:${r.note?'var(--text2)':'var(--dim2)'};font-style:${r.note?'italic':'normal'};">${r.note ? esc(r.note) : '+ catatan'}</button>
             ${r.actionMobileHtml}
           </div>`).join('')}
       </div>`}
@@ -2144,8 +2226,13 @@ function secLaporanHtml(V){
         <div style="min-width:190px;">${customDatePickerHtml('saldate', V.salesDate, (v)=>loadSalesByDate(v), 'Pilih tanggal...', 42)}</div>
       </div>
       ${!V.salesDate ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Pilih tanggal untuk melihat rincian penjualan hari itu.</div>` : ''}
+      ${V.salesDate && V.salesUserChips.length > 1 ? `
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
+          <span style="font-size:11.5px;color:var(--muted);margin-right:2px;">Petugas:</span>
+          ${V.salesUserChips.map(c => `<button ${A(c.onClick)} title="petugas-${esc(c.uname)}" style="height:32px;padding:0 13px;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;border:1px solid ${c.bd};background:${c.bg};color:${c.cl};">${esc(c.label)}</button>`).join('')}
+        </div>` : ''}
       ${V.salesDateLoading ? `<div style="padding:26px;text-align:center;color:var(--muted);font-size:13px;">Memuat…</div>` : ''}
-      ${V.salesDateEmpty ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Tidak ada penjualan pada tanggal ini.</div>` : ''}
+      ${V.salesDateEmpty ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--dim2);font-size:13px;">Tidak ada penjualan ${V.salesUser==='Semua'?'pada tanggal ini':'oleh petugas ini pada tanggal itu'}.</div>` : ''}
       ${V.salesDateRows.length ? `
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
           <div style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;padding:12px 15px;">
@@ -2169,6 +2256,27 @@ function secLaporanHtml(V){
                 <div style="font-size:11.5px;color:var(--muted);">${r.totalText}</div>
               </div>
             </div>`).join('')}
+        </div>` : ''}
+
+      ${V.hargaKhususAda ? `
+        <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border2);">
+          <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:13.5px;margin-bottom:3px;">Transaksi Harga Khusus</div>
+          <div style="font-size:11.5px;color:var(--muted);margin-bottom:11px;">Item yang dijual di luar harga normal, lengkap dengan alasan yang ditulis kasir</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${V.hargaKhususRows.map(h => `
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:11px 14px;">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                  <span style="font-size:13px;font-weight:600;min-width:0;">${esc(h.produk)} <span style="color:var(--muted);font-weight:400;">· ${esc(h.qtyText)}</span></span>
+                  <span style="white-space:nowrap;">
+                    <span style="font-size:11.5px;color:var(--muted);text-decoration:line-through;">${esc(h.normalText)}</span>
+                    <span style="font-family:'Saira',sans-serif;font-weight:700;font-size:14px;color:var(--gold);margin-left:6px;">${esc(h.hargaText)}</span>
+                    <span style="font-size:11px;font-weight:700;margin-left:6px;color:${h.turun?'var(--danger)':'var(--ok)'};">${esc(h.selisihText)}</span>
+                  </span>
+                </div>
+                <div style="font-size:11.5px;color:var(--text2);margin-top:5px;font-style:italic;">"${esc(h.note)}"</div>
+                <div style="font-size:11px;color:var(--dim);margin-top:2px;">nota ${esc(h.nota)} · ${esc(h.oleh)}</div>
+              </div>`).join('')}
+          </div>
         </div>` : ''}
     </div>
   </div>`;
@@ -2283,13 +2391,62 @@ function secBiayaHtml(V){
 }
 
 function secShopeeHtml(V){
-  return `<div style="${V.popScreen}display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 20px;">
-    <div style="width:96px;height:96px;border-radius:28px;background:linear-gradient(150deg,#EE4D2D,#c93b1f);display:flex;align-items:center;justify-content:center;box-shadow:0 14px 34px -10px rgba(238,77,45,.5);margin-bottom:24px;">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none"><path d="M5 8h14l-1 12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 8Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"></path><path d="M9 8V6a3 3 0 0 1 6 0v2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></path></svg>
+  // Notula §5: integrasi API Shopee DITUNDA. Sampai itu ada, penjualan marketplace
+  // dicatat kasir sbg metode bayar 'marketplace' — layar ini merekapnya.
+  const cols = V.isDesktop
+    ? 'display:grid;grid-template-columns:92px 108px 1fr 120px;gap:12px;'
+    : 'display:grid;grid-template-columns:1fr 110px;gap:8px;';
+  const kartu = (label, isi, warna) => `
+    <div style="flex:1;min-width:150px;background:var(--surface2);border:1px solid var(--border2);border-radius:12px;padding:12px 14px;">
+      <div style="font-size:11px;color:var(--muted);">${label}</div>
+      <div style="font-family:'Saira',sans-serif;font-weight:800;font-size:18px;color:${warna||'var(--text)'};margin-top:2px;">${esc(isi)}</div>
+    </div>`;
+  return `<div style="${V.popScreen}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <div style="font-family:'Saira',sans-serif;font-weight:700;font-size:15px;">Penjualan Marketplace</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px;">Transaksi bermetode <b style="color:#EE4D2D;">Marketplace / Shopee</b> — dicatat kasir, tanpa cetak nota</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:3px;">
+        <button ${A(V.mpPrevMonth)} title="mp-bulan-sebelumnya" style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:pointer;color:var(--gold);font-size:16px;line-height:1;">‹</button>
+        <span style="min-width:96px;text-align:center;font-family:'Saira',sans-serif;font-weight:700;font-size:13.5px;">${esc(V.mpMonthText)}</span>
+        <button ${A(V.mpNextMonth)} title="mp-bulan-berikutnya" ${V.mpNextMonth?'':'disabled'} style="width:32px;height:32px;border-radius:8px;border:none;background:none;cursor:pointer;color:${V.mpNextMonth?'var(--gold)':'var(--dim2)'};font-size:16px;line-height:1;">›</button>
+      </div>
     </div>
-    <span style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#EE4D2D;background:rgba(238,77,45,.12);padding:6px 14px;border-radius:20px;margin-bottom:18px;">Segera Hadir</span>
-    <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:26px;margin:0 0 12px;">Integrasi Shopee</h3>
-    <p style="font-size:14.5px;color:var(--muted);line-height:1.6;max-width:440px;margin:0;">Nantinya semua barang yang terjual di Shopee otomatis tersinkron &amp; tercatat di sistem ini — stok dan laporan jadi satu pintu.</p>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      ${kartu('Omset Marketplace', V.mpOmsetText, '#EE4D2D')}
+      ${kartu('Jumlah Transaksi', V.mpTrxText)}
+      ${kartu('Porsi', V.mpPorsiText, 'var(--muted)')}
+    </div>
+
+    ${V.mpLoading
+      ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:26px;text-align:center;color:var(--muted);font-size:13px;">Memuat penjualan marketplace…</div>`
+      : V.mpEmpty
+      ? `<div style="border:1px dashed var(--border);border-radius:14px;padding:34px 20px;text-align:center;color:var(--dim2);font-size:13px;">Belum ada penjualan marketplace pada ${esc(V.mpMonthText)}.</div>`
+      : `<div style="background:var(--surface);border:1px solid var(--border2);box-shadow:var(--cardshadow);border-radius:16px;overflow:hidden;">
+          <div style="${cols}padding:13px 16px;border-bottom:1px solid var(--border2);font-family:'Saira',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">
+            ${V.isDesktop
+              ? `<span>Nota</span><span>Tanggal</span><span>Barang</span><span style="text-align:right;">Total</span>`
+              : `<span>Nota &amp; Barang</span><span style="text-align:right;">Total</span>`}
+          </div>
+          ${V.mpRows.map(t => `
+            <div style="${cols}padding:12px 16px;border-bottom:1px solid var(--divider);align-items:center;font-size:13px;">
+              ${V.isDesktop ? `
+                <span style="font-family:'Saira',sans-serif;font-weight:700;color:var(--text2);">${esc(t.nota)}</span>
+                <span style="color:var(--muted);white-space:nowrap;">${esc(t.tanggalText)}</span>
+                <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(t.barang)}</span>
+                <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:800;">${esc(t.totalText)}</span>
+              ` : `
+                <span style="min-width:0;">
+                  <span style="display:block;font-weight:600;">${esc(t.nota)} · ${esc(t.tanggalText)}</span>
+                  <span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(t.barang)}</span>
+                </span>
+                <span style="text-align:right;font-family:'Saira',sans-serif;font-weight:800;">${esc(t.totalText)}</span>
+              `}
+            </div>`).join('')}
+        </div>
+        ${V.mpTruncated ? `<div style="margin-top:10px;font-size:11.5px;color:var(--muted);">Menampilkan 200 transaksi terbaru bulan ini. Kartu ringkasan di atas tetap menghitung seluruh bulan.</div>` : ''}`}
   </div>`;
 }
 
@@ -2627,6 +2784,27 @@ function prodFormHtml(V){
   </div>`;
 }
 
+function recvNoteFormHtml(V){
+  const pad = V.isMobile ? '20px 16px' : '22px';
+  const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(460px, calc(100vw - 32px))';
+  return `
+  <div ${A(V.closeRecvNote)} style="position:fixed;inset:0;background:var(--scrim);z-index:50;"></div>
+  <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:51;width:${modalW};background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:${pad};${V.popModal('recvNote')}">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <h3 style="font-family:'Saira',sans-serif;font-weight:800;font-size:20px;margin:0;">Catatan Piutang</h3>
+      <button ${A(V.closeRecvNote)} title="tutup" style="width:30px;height:30px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin:0 0 16px;line-height:1.5;">${esc(V.recvNoteName)} — alasan/keterangan transaksi tempo. Nominal &amp; jatuh tempo tidak bisa diubah dari sini.</p>
+    <div>${lbl('Catatan')}
+      <textarea id="i-recvnote" ${I(V.onNoteText)} maxlength="300" rows="3" placeholder="cnt. Ambil barang dulu, bayar setelah gajian" style="width:100%;box-sizing:border-box;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:14px;padding:11px 14px;outline:none;font-family:'Hanken Grotesk',sans-serif;resize:vertical;">${esc(V.noteText)}</textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button ${A(V.closeRecvNote)} style="flex:none;width:95px;height:46px;border-radius:12px;background:var(--chip);border:1px solid var(--border);color:var(--text2);font-size:14px;cursor:pointer;font-family:'Hanken Grotesk',sans-serif;">Batal</button>
+      <button ${A(V.saveRecvNote)} style="flex:1;height:46px;border:none;border-radius:12px;background:linear-gradient(180deg,var(--goldhi),var(--gold));color:#161208;font-family:'Saira',sans-serif;font-weight:800;font-size:13px;letter-spacing:.04em;cursor:pointer;">SIMPAN CATATAN</button>
+    </div>
+  </div>`;
+}
+
 function catFormHtml(V){
   const pad = V.isMobile ? '20px 16px' : '22px';
   const modalW = V.isMobile ? 'calc(100vw - 24px)' : 'min(440px, calc(100vw - 32px))';
@@ -2885,6 +3063,7 @@ function html(V){
     ${V.bell ? bellHtml(V) : ''}
     ${V.branchForm ? branchFormHtml(V) : ''}
     ${V.catForm ? catFormHtml(V) : ''}
+    ${V.recvNoteOpen ? recvNoteFormHtml(V) : ''}
     ${V.userForm ? userFormHtml(V) : ''}
     ${V.prodForm ? prodFormHtml(V) : ''}
     ${V.poForm ? poFormHtml(V) : ''}
@@ -2911,7 +3090,7 @@ function render(){
   const openNow = { bell:S.bell, branchForm:S.branchForm, catForm:S.catForm,
     userForm:S.userForm, prodForm:S.prodForm, more:S.more,
     poForm:S.poForm, biayaForm:S.biayaForm, bxCatForm:S.bxCatForm, restock:S.restockId!==null,
-    branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, receivableHist:!!S.receivableHist, toast:!!S.toast };
+    recvNote:S.noteRecvId!==null, branchMenu:S.branchMenu, memberDd:S.memberDropdown, confirmPay:!!S.confirmPay, confirmDelete:!!S.confirmDelete, receivableHist:!!S.receivableHist, toast:!!S.toast };
   V.popScreen = sameScreen ? '' : 'animation:ssPop .3s ease;';
   V.pop = k => prevOpen[k] ? '' : 'animation:ssPop .22s ease;';
   V.popModal = k => prevOpen[k] ? '' : 'animation:ssModal .22s ease;'; // modal tengah: keyframes menyertakan translate(-50%,-50%)

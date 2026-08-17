@@ -216,7 +216,9 @@
     try {
       var resp = await SS.api('/api/transactions', 'POST', {
         items: cart.map(function(i){
-          return { product_id: i.id, qty: i.qty, price: i.hargaJual };
+          // priceNote ikut dikirim: alasan harga khusus wajib diisi kasir, tapi
+          // sebelumnya berhenti di keranjang sehingga admin tak bisa mengauditnya.
+          return { product_id: i.id, qty: i.qty, price: i.hargaJual, note: i.priceNote || null };
         }),
         method:        method,
         cash:          cash,

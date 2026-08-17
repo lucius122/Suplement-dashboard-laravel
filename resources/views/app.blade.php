@@ -14,7 +14,7 @@
   {{-- Modul kasir (dikerjakan tim kasir). Harus dimuat SETELAH app.js karena memakai window.SS. --}}
   <script src="{{ asset('js/kasir.js') }}?v={{ file_exists(public_path('js/kasir.js')) ? filemtime(public_path('js/kasir.js')) : time() }}"></script>
   @if (app()->environment('local') && request()->has('e2e'))
-    <script src="{{ asset('__test.js') }}"></script>
+    <script src="{{ asset('js/__test.js') }}"></script>
   @endif
 </body>
 </html>

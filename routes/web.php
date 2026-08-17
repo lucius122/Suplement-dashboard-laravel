@@ -28,12 +28,14 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::get('/dashboard/yearly', [DashboardController::class, 'dashboardYearly']);
     Route::get('/sales-by-date', [DashboardController::class, 'salesByDate']);
     Route::get('/stock-movements', [DashboardController::class, 'stockMovements']); // layar Riwayat Stok
+    Route::get('/marketplace-sales', [DashboardController::class, 'marketplaceSales']); // layar Shopee
     Route::get('/sales-by-user', [DashboardController::class, 'salesByUser']);
     Route::get('/sales-by-user/{username}/items', [DashboardController::class, 'salesByUserItems']);
 
     // Kasir: simpan transaksi & pelunasan piutang
     Route::post('/transactions', [TransactionController::class, 'storeTransaction']);
     Route::post('/receivables/{receivable}/pay', [TransactionController::class, 'payReceivable']);
+    Route::patch('/receivables/{receivable}/note', [TransactionController::class, 'updateReceivableNote']);
 
     // Produk, Stok & Kategori Produk
     Route::post('/products', [ProductController::class, 'storeProduct']); // tambah produk (admin)

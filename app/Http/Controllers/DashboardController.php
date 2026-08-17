@@ -47,7 +47,7 @@ class DashboardController extends Controller
                 ];
             }),
             'receivables' => Receivable::with(['branch', 'payments'])->orderByDesc('id')->get()->map(fn ($r) => [
-                'id' => $r->id, 'name' => $r->name, 'amount' => $r->amount,
+                'id' => $r->id, 'name' => $r->name, 'note' => $r->note, 'amount' => $r->amount,
                 'paid_amount' => $r->paid_amount,
                 'remaining' => max(0, $r->amount - $r->paid_amount),
                 'trx' => $r->trx_date->toDateString(), 'due' => $r->due_date->toDateString(),
@@ -323,33 +323,89 @@ class DashboardController extends Controller
         $data = $request->validate([
             'date' => ['required', 'date'],
             'branch' => ['nullable', 'string'],
+            // username petugas; kosong/'Semua' = tidak disaring
+            'user' => ['nullable', 'string'],
         ]);
         $tanggal = \Illuminate\Support\Carbon::parse($data['date'])->toDateString();
         $cabang = ($data['branch'] ?? 'Semua') !== 'Semua' ? $data['branch'] : null;
         $branchId = $cabang ? Branch::where('name', $cabang)->value('id') : null;
 
-        $items = DB::table('transaction_items')
+        $uname = ($data['user'] ?? 'Semua') !== 'Semua' ? $data['user'] : null;
+        // Username tak dikenal TIDAK boleh diam-diam jadi "semua petugas" — itu
+        // menampilkan angka seluruh toko seolah-olah milik satu orang.
+        $userId = null;
+        if ($uname !== null) {
+            $userId = User::where('username', $uname)->value('id');
+            if (! $userId) {
+                return response()->json(['message' => 'Petugas "'.$uname.'" tidak ditemukan.'], 422);
+            }
+        }
+
+        $saring = fn ($q) => $q->whereDate('transactions.created_at', $tanggal)
+            ->when($branchId, fn ($qq) => $qq->where('transactions.branch_id', $branchId))
+            ->when($userId, fn ($qq) => $qq->where('transactions.user_id', $userId));
+
+        $items = $saring(DB::table('transaction_items')
             ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
-            ->join('products', 'products.id', '=', 'transaction_items.product_id')
-            ->whereDate('transactions.created_at', $tanggal)
-            ->when($branchId, fn ($q) => $q->where('transactions.branch_id', $branchId))
+            ->join('products', 'products.id', '=', 'transaction_items.product_id'))
             ->groupBy('products.id', 'products.name', 'products.varian')
             ->selectRaw('products.name, products.varian, SUM(transaction_items.qty) as qty, SUM(transaction_items.qty * transaction_items.price) as total')
             ->orderByDesc('qty')
             ->get()
             ->map(fn ($r) => ['name' => $r->name, 'varian' => $r->varian, 'qty' => (int) $r->qty, 'total' => (int) $r->total]);
 
-        $ringkas = DB::table('transactions')
-            ->whereDate('created_at', $tanggal)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->selectRaw('COALESCE(SUM(total),0) as omset, COUNT(*) as trx')
+        $ringkas = $saring(DB::table('transactions'))
+            ->selectRaw('COALESCE(SUM(transactions.total),0) as omset, COUNT(*) as trx')
             ->first();
+
+        // Daftar petugas yang BENAR-BENAR bertransaksi pada tanggal & cabang itu —
+        // sengaja dihitung TANPA filter user, supaya pilihan tidak ikut menyusut
+        // jadi satu nama begitu sebuah filter dipasang.
+        $petugas = DB::table('transactions')
+            ->join('users', 'users.id', '=', 'transactions.user_id')
+            ->whereDate('transactions.created_at', $tanggal)
+            ->when($branchId, fn ($q) => $q->where('transactions.branch_id', $branchId))
+            ->groupBy('users.id', 'users.username', 'users.name')
+            ->selectRaw('users.username as uname, users.name, COALESCE(SUM(transactions.total),0) as omset, COUNT(*) as trx')
+            ->orderByDesc('omset')
+            ->get()
+            ->map(fn ($u) => ['uname' => $u->uname, 'name' => $u->name, 'omset' => (int) $u->omset, 'trx' => (int) $u->trx]);
+
+        // Audit harga khusus (notula §3): item yang dijual dengan alasan tertulis.
+        // Ikut filter tanggal/cabang/petugas yang sama, jadi admin bisa menelusuri
+        // "siapa memberi diskon apa, hari itu, dengan alasan apa".
+        $hargaKhusus = $saring(DB::table('transaction_items')
+            ->join('transactions', 'transactions.id', '=', 'transaction_items.transaction_id')
+            ->join('products', 'products.id', '=', 'transaction_items.product_id')
+            ->leftJoin('users', 'users.id', '=', 'transactions.user_id'))
+            ->whereNotNull('transaction_items.note')
+            ->orderByDesc('transaction_items.id')
+            ->limit(100)
+            ->get([
+                'transaction_items.transaction_id as nota',
+                'products.name', 'products.varian', 'products.harga as harga_normal',
+                'transaction_items.qty', 'transaction_items.price', 'transaction_items.note',
+                'users.name as oleh',
+            ])
+            ->map(fn ($r) => [
+                'nota' => $r->nota,
+                'produk' => $r->name.' · '.$r->varian,
+                'qty' => (int) $r->qty,
+                'hargaNormal' => (int) $r->harga_normal,
+                'harga' => (int) $r->price,
+                'selisih' => (int) $r->harga_normal - (int) $r->price,
+                'note' => $r->note,
+                'oleh' => $r->oleh,
+            ]);
 
         return response()->json([
             'date' => $tanggal,
+            'user' => $uname ?? 'Semua',
             'items' => $items,
+            'hargaKhusus' => $hargaKhusus,
             'omset' => (int) $ringkas->omset,
             'trx' => (int) $ringkas->trx,
+            'petugas' => $petugas,
         ]);
     }
 
@@ -408,6 +464,63 @@ class DashboardController extends Controller
             'rows' => $rows,
             'masuk' => (int) $ringkas->masuk,
             'keluar' => (int) $ringkas->keluar,
+        ]);
+    }
+
+    public function marketplaceSales(Request $request)
+    {
+        // Rekap penjualan Marketplace/Shopee satu bulan (notula §5: penjualan
+        // marketplace masuk dashboard admin sbg metode bayar tersendiri; integrasi
+        // API Shopee ditunda, jadi sumbernya transaksi ber-method 'marketplace').
+        $this->assertAdmin($request);
+        $data = $request->validate([
+            'month' => ['required', 'regex:/^\d{4}-\d{2}$/'],
+            'branch' => ['nullable', 'string'],
+        ]);
+
+        [$th, $bl] = array_map('intval', explode('-', $data['month']));
+        $awal = \Illuminate\Support\Carbon::create($th, $bl, 1)->startOfMonth();
+        $akhir = (clone $awal)->endOfMonth();
+
+        $cabang = ($data['branch'] ?? 'Semua') !== 'Semua' ? $data['branch'] : null;
+        $branchId = $cabang ? Branch::where('name', $cabang)->value('id') : null;
+
+        $dasar = fn () => Transaction::where('method', 'marketplace')
+            ->whereBetween('created_at', [$awal, $akhir])
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
+
+        // Ringkasan dari SELURUH bulan — tidak terpengaruh batas 200 baris di bawah.
+        $ringkas = $dasar()->selectRaw('COALESCE(SUM(total),0) as omset, COUNT(*) as trx')->first();
+
+        $rows = $dasar()
+            ->with(['branch:id,name', 'user:id,name', 'items.product:id,name,varian'])
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'tanggal' => $t->created_at->toDateTimeString(),
+                'total' => $t->total,
+                'cabang' => $t->branch?->name,
+                'oleh' => $t->user?->name,
+                'items' => $t->items->map(fn ($i) => [
+                    'nama' => $i->product ? $i->product->name.' · '.$i->product->varian : '(produk terhapus)',
+                    'qty' => $i->qty,
+                ])->all(),
+            ]);
+
+        // Pembanding: total omset SEMUA metode di bulan yang sama, supaya admin tahu
+        // porsi marketplace terhadap keseluruhan (bukan angka yang menggantung sendiri).
+        $totalSemua = Transaction::whereBetween('created_at', [$awal, $akhir])
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->sum('total');
+
+        return response()->json([
+            'month' => $data['month'],
+            'rows' => $rows,
+            'omset' => (int) $ringkas->omset,
+            'trx' => (int) $ringkas->trx,
+            'omsetSemuaMetode' => (int) $totalSemua,
         ]);
     }
 
