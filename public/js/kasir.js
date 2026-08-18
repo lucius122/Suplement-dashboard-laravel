@@ -260,23 +260,28 @@
 
     var rp = function(n){ return 'Rp'+(Math.round(n)||0).toLocaleString('id-ID'); };
 
-    // Baris item
+    // Baris item (format 2-baris per item agar muat sempurna di printer 58mm tanpa terpotong)
     var itemRows = snap.cart.map(function(i){
       var changed = i.hargaJual !== i.harga;
       return '<tr>'
-        +'<td style="padding:3px 0;font-size:11px;vertical-align:top;line-height:1.4;">'
-          +'<span style="font-weight:600;">'+esc(i.name)+'</span>'
-          +(i.varian && i.varian !== '-' ? '<br><span style="color:#777;font-size:10px;">'+esc(i.varian)+'</span>' : '')
+        +'<td colspan="2" style="padding:2px 0 1px;font-size:9.5px;line-height:1.25;word-break:break-word;color:#000;">'
+          +'<strong style="font-weight:700;">'+esc(i.name)+'</strong>'
+          +(i.varian && i.varian !== '-' ? '<br><span style="font-size:8.5px;color:#000;">'+esc(i.varian)+'</span>' : '')
           +(changed
-            ? '<br><span style="font-size:9px;color:#888;">'
+            ? '<br><span style="font-size:8px;color:#000;">'
               +'Normal: '+rp(i.harga)
               +(i.priceNote ? ' · '+esc(i.priceNote) : '')
               +'</span>'
             : '')
         +'</td>'
-        +'<td style="padding:3px 4px;font-size:11px;text-align:center;vertical-align:top;white-space:nowrap;">'+i.qty+'</td>'
-        +'<td style="padding:3px 0;font-size:11px;text-align:right;vertical-align:top;white-space:nowrap;">'+rp(i.hargaJual)+'</td>'
-        +'<td style="padding:3px 0 3px 6px;font-size:11px;text-align:right;vertical-align:top;font-weight:600;white-space:nowrap;">'+rp(i.hargaJual*i.qty)+'</td>'
+        +'</tr>'
+        +'<tr>'
+        +'<td style="padding:1px 0 3px;font-size:9px;color:#000;vertical-align:bottom;">'
+          +i.qty+' &times; '+rp(i.hargaJual)
+        +'</td>'
+        +'<td style="padding:1px 4px 3px 0;font-size:9.5px;font-weight:700;text-align:right;white-space:nowrap;color:#000;vertical-align:bottom;">'
+          +rp(i.hargaJual*i.qty)
+        +'</td>'
         +'</tr>';
     }).join('');
 
@@ -284,31 +289,31 @@
     var finalTotal = snap.discount > 0 ? snap.cash : snap.cartTotal;
     var footerRows = ''
       +'<tr>'
-        +'<td colspan="3" style="padding:6px 0 2px;font-size:11px;border-top:1px dashed #999;">Subtotal</td>'
-        +'<td style="padding:6px 0 2px 6px;font-size:11px;text-align:right;border-top:1px dashed #999;">'+rp(snap.cartTotal)+'</td>'
+        +'<td style="padding:3px 0 1px;font-size:9px;border-top:1px dashed #000;color:#000;">Subtotal</td>'
+        +'<td style="padding:3px 4px 1px 0;font-size:9px;text-align:right;border-top:1px dashed #000;white-space:nowrap;color:#000;">'+rp(snap.cartTotal)+'</td>'
       +'</tr>';
 
     if (snap.discount > 0) {
       footerRows += '<tr>'
-        +'<td colspan="3" style="padding:2px 0;font-size:11px;color:#c00;">Potongan</td>'
-        +'<td style="padding:2px 0 2px 6px;font-size:11px;text-align:right;color:#c00;">-'+rp(snap.discount)+'</td>'
+        +'<td style="padding:1px 0;font-size:9px;color:#000;">Potongan</td>'
+        +'<td style="padding:1px 4px 1px 0;font-size:9px;text-align:right;white-space:nowrap;color:#000;">-'+rp(snap.discount)+'</td>'
         +'</tr>';
     }
 
     footerRows += '<tr>'
-      +'<td colspan="3" style="padding:5px 0;font-size:13px;font-weight:700;border-top:2px solid #333;">TOTAL BAYAR</td>'
-      +'<td style="padding:5px 0 5px 6px;font-size:13px;font-weight:700;text-align:right;border-top:2px solid #333;">'+rp(finalTotal)+'</td>'
+      +'<td style="padding:3px 0;font-size:10.5px;font-weight:800;border-top:1.5px solid #000;border-bottom:1.5px solid #000;color:#000;">TOTAL BAYAR</td>'
+      +'<td style="padding:3px 4px 3px 0;font-size:10.5px;font-weight:800;text-align:right;border-top:1.5px solid #000;border-bottom:1.5px solid #000;white-space:nowrap;color:#000;">'+rp(finalTotal)+'</td>'
       +'</tr>';
 
     if (snap.method === 'tunai' && snap.cash) {
       footerRows += '<tr>'
-        +'<td colspan="3" style="padding:2px 0;font-size:11px;">Tunai Diterima</td>'
-        +'<td style="padding:2px 0 2px 6px;font-size:11px;text-align:right;">'+rp(snap.cash)+'</td>'
+        +'<td style="padding:2px 0 1px;font-size:9px;color:#000;">Tunai Diterima</td>'
+        +'<td style="padding:2px 4px 1px 0;font-size:9px;text-align:right;white-space:nowrap;color:#000;">'+rp(snap.cash)+'</td>'
         +'</tr>';
       if (snap.change !== null && snap.change >= 0) {
         footerRows += '<tr>'
-          +'<td colspan="3" style="padding:2px 0;font-size:12px;font-weight:700;">Kembalian</td>'
-          +'<td style="padding:2px 0 2px 6px;font-size:12px;font-weight:700;text-align:right;">'+rp(snap.change)+'</td>'
+          +'<td style="padding:1px 0;font-size:10px;font-weight:800;color:#000;">Kembalian</td>'
+          +'<td style="padding:1px 4px 1px 0;font-size:10px;font-weight:800;text-align:right;white-space:nowrap;color:#000;">'+rp(snap.change)+'</td>'
           +'</tr>';
       }
     }
@@ -328,26 +333,25 @@
       +'<title>Nota #'+(snap.trxId||'-')+' — Suplemen Semarang</title>'
       +'<style>'
         +'*{box-sizing:border-box;margin:0;padding:0;}'
-        +'body{font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#000;}'
-        +'.nota-wrap{max-width:80mm;margin:0 auto;background:#fff;padding:10mm 6mm;}'
-        +'.nota-header{text-align:center;margin-bottom:8px;}'
-        +'.nota-header h1{font-size:14px;font-weight:700;letter-spacing:1.5px;}'
-        +'.nota-header .sub{font-size:10px;color:#555;}'
-        +'.divider{border:none;border-top:1px solid #bbb;margin:6px 0;}'
-        +'.divider-dash{border:none;border-top:1px dashed #ccc;margin:4px 0;}'
-        +'.meta{display:flex;justify-content:space-between;font-size:10px;color:#555;}'
-        +'table{width:100%;border-collapse:collapse;}'
-        +'th{font-size:9.5px;color:#888;font-weight:600;padding-bottom:4px;border-bottom:1px dashed #ccc;}'
-        +'.footer-note{margin-top:10px;text-align:center;font-size:9.5px;color:#888;border-top:1px dashed #ccc;padding-top:7px;}'
-        +'.method-box{margin-top:8px;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;}'
-        +'.actions{text-align:center;margin-top:14px;display:flex;gap:8px;justify-content:center;}'
-        +'.btn{padding:7px 18px;border:1px solid #333;border-radius:5px;cursor:pointer;font-size:12px;background:#f0f0f0;}'
-        +'.btn-close{background:#fff;border-color:#ccc;color:#666;}'
+        +'body{font-family:\'Segoe UI\',Tahoma,Arial,sans-serif;background:#e5e5e5;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:9.5px;line-height:1.25;}'
+        +'.nota-wrap{width:42mm;max-width:100%;margin:10px auto;background:#fff;padding:2mm 1.5mm;box-shadow:0 2px 10px rgba(0,0,0,.15);box-sizing:border-box;}'
+        +'.nota-header{text-align:center;margin-bottom:4px;}'
+        +'.nota-header h1{font-size:11.5px;font-weight:800;letter-spacing:.2px;margin-bottom:1px;color:#000;}'
+        +'.nota-header .sub{font-size:8.5px;color:#000;line-height:1.2;}'
+        +'.divider{border:none;border-top:1px solid #000;margin:3px 0;}'
+        +'.divider-dash{border:none;border-top:1px dashed #000;margin:3px 0;}'
+        +'.meta{display:flex;justify-content:space-between;font-size:8.5px;color:#000;font-weight:600;}'
+        +'table{width:100%;border-collapse:collapse;table-layout:auto;}'
+        +'.footer-note{margin-top:5px;text-align:center;font-size:8.5px;color:#000;border-top:1px dashed #000;padding-top:4px;line-height:1.2;}'
+        +'.method-box{margin-top:4px;padding:3px 4px;border:1px solid #000;border-radius:2px;font-size:9px;color:#000;}'
+        +'.actions{text-align:center;margin-top:10px;display:flex;gap:5px;justify-content:center;}'
+        +'.btn{padding:5px 12px;border:1px solid #000;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700;background:#fff;color:#000;}'
+        +'.btn-close{background:#f0f0f0;border-color:#999;color:#333;}'
         +'@media print{'
-        +'  body{background:#fff;}'
-        +'  .nota-wrap{max-width:100%;padding:4mm;}'
+        +'  html,body{background:#fff!important;margin:0!important;padding:0!important;width:42mm!important;}'
+        +'  .nota-wrap{width:42mm!important;max-width:42mm!important;margin:0!important;padding:1mm 1mm 4mm 1mm!important;box-shadow:none!important;}'
         +'  .no-print{display:none!important;}'
-        +'  @page{size:80mm auto;margin:4mm;}'
+        +'  @page{size:58mm auto;margin:0mm;}'
         +'}'
       +'</style>'
       +'</head><body>'
@@ -356,7 +360,7 @@
         +'<div class="nota-header">'
           +'<h1>SUPLEMEN SEMARANG</h1>'
           +'<div class="sub">Cabang '+esc(snap.branch)+'</div>'
-          +'<div class="sub" style="margin-top:2px;">'+tgl+' &nbsp;&bull;&nbsp; '+jam+'</div>'
+          +'<div class="sub">'+tgl+' &bull; '+jam+'</div>'
         +'</div>'
         +'<hr class="divider">'
         +'<div class="meta">'
@@ -366,12 +370,6 @@
         +'<hr class="divider">'
         // Tabel produk
         +'<table>'
-          +'<thead><tr>'
-            +'<th style="text-align:left;">Produk</th>'
-            +'<th style="text-align:center;">Qty</th>'
-            +'<th style="text-align:right;">Harga</th>'
-            +'<th style="text-align:right;padding-left:6px;">Sub</th>'
-          +'</tr></thead>'
           +'<tbody>'+itemRows+'</tbody>'
           +'<tfoot>'+footerRows+'</tfoot>'
         +'</table>'
@@ -384,7 +382,7 @@
             : '')
         +'</div>'
         // Footer
-        +'<div class="footer-note">Terima kasih atas kepercayaan Anda!</div>'
+        +'<div class="footer-note">Terima kasih atas kunjungan Anda!</div>'
         // Tombol aksi (tidak ikut cetak)
         +'<div class="actions no-print">'
           +'<button class="btn" onclick="window.print();return false;">&#128438; Cetak</button>'
@@ -393,7 +391,7 @@
       +'</div>'
       +'</body></html>';
 
-    var w = window.open('', '_blank', 'width=420,height=660,scrollbars=yes,resizable=yes');
+    var w = window.open('', '_blank', 'width=340,height=580,scrollbars=yes,resizable=yes');
     if (w) {
       w.document.write(html);
       w.document.close();
