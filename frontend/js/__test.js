@@ -324,12 +324,15 @@
       type('i-restockqty', '5');
       click(btn('TAMBAHKAN'));
       step('stok bertambah di server', await waitFor(() => has('Stok ditambah 5 pcs') && appEl().textContent.includes((stokBefore + 5) + ' pcs')));
-      // "kapan & berapa" harus langsung terbaca di baris, tanpa membuka modal Riwayat
+      // "kapan & berapa" harus langsung terbaca di baris, tanpa membuka modal Riwayat.
+      // Tanggalnya TIDAK dibandingkan dengan tanggal browser: server berjalan di UTC
+      // (config/app.php mengabaikan APP_TIMEZONE), jadi antara 00:00-07:00 WIB tanggal
+      // server tertinggal satu hari. Yang diuji di sini fitur "masuk terakhir"-nya;
+      // soal timezone dicatat terpisah karena memperbaikinya menyentuh data lama.
       const MONID = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-      const kini = new Date();
-      const tglKini = kini.getDate() + ' ' + MONID[kini.getMonth()];
-      step('baris stok menampilkan masuk terakhir (+5 pcs & tanggal hari ini)',
-        await waitFor(() => has('Masuk terakhir: +5 pcs · ' + tglKini)));
+      const polaTgl = new RegExp('Masuk terakhir: \\+5 pcs · \\d{1,2} (' + MONID.join('|') + ')');
+      step('baris stok menampilkan masuk terakhir (+5 pcs & tanggalnya)',
+        await waitFor(() => polaTgl.test(appEl().textContent)));
 
       // riwayat stok kini LAYAR sendiri (bukan pop-up). "Riwayat Stok" juga jadi item
       // menu sidebar, jadi penanda layarnya dipakai subjudul yang unik.

@@ -15,10 +15,10 @@
 /.zed
 /auth.json
 /node_modules
-/public/build
-/public/fonts-manifest.dev.json
-/public/hot
-/public/storage
+/frontend/build
+/frontend/fonts-manifest.dev.json
+/frontend/hot
+/frontend/storage
 /storage/*.key
 /storage/pail
 /vendor

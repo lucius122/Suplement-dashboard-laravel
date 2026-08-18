@@ -14,7 +14,7 @@
     </testsuites>
     <source>
         <include>
-            <directory>app</directory>
+            <directory>backend/app</directory>
         </include>
     </source>
     <php>
